@@ -1,0 +1,173 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Cairo", "Tajawal", "Segoe UI", system-ui, sans-serif;
+  --font-print: "Cairo", "Tajawal", "Times New Roman", serif;
+  --color-brand-50: #eef6ff;
+  --color-brand-100: #d9ebff;
+  --color-brand-200: #bcdcff;
+  --color-brand-300: #8ec5ff;
+  --color-brand-400: #59a5ff;
+  --color-brand-500: #2f83fb;
+  --color-brand-600: #1a64ef;
+  --color-brand-700: #164fdc;
+  --color-brand-800: #1743b0;
+  --color-brand-900: #183c8b;
+  --color-brand-950: #112553;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background:
+    radial-gradient(1200px 600px at 100% -10%, #dbeafe 0%, transparent 60%),
+    radial-gradient(1000px 500px at 0% 0%, #ede9fe 0%, transparent 55%), #f6f8fb;
+  min-height: 100vh;
+}
+
+/* ================= الشبكة الممتدة لجداول الرصد ================= */
+.sheet-grid {
+  display: grid;
+  direction: rtl;
+}
+
+.sheet-cell input {
+  font-variant-numeric: tabular-nums;
+}
+
+/* إخفاء أسهم حقول الأرقام */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* شريط تمرير أنيق */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #eef2f7;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb {
+  background: #c3cede;
+  border-radius: 999px;
+  border: 2px solid #eef2f7;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9fb2c9;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-up {
+  animation: fadeUp 0.35s ease-out both;
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(0.94);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.animate-pop {
+  animation: pop 0.2s ease-out both;
+}
+
+/* ==================== أنماط الطباعة النظيفة ==================== */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm 8mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    font-family: var(--font-print);
+  }
+
+  .no-print,
+  .no-print * {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .print-area {
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 0 !important;
+    background: #fff !important;
+  }
+
+  .print-page {
+    page-break-after: always;
+    break-after: page;
+  }
+  .print-page:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 10.5pt;
+  }
+
+  th,
+  td {
+    border: 1px solid #333 !important;
+    padding: 4px 5px !important;
+    color: #000 !important;
+    background: #fff !important;
+  }
+
+  thead th {
+    background: #eef2f7 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  tr,
+  .avoid-break {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  a[href]::after {
+    content: "";
+  }
+}
+
+.print-only {
+  display: none;
+}
