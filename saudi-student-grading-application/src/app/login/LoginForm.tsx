@@ -109,7 +109,9 @@ export default function LoginForm() {
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        setError(data.error ?? "تعذر إنشاء الحساب");
+        // نعرض السبب التفصيلي إن وُجد لتسهيل تشخيص المشكلة
+        const detail = data.details ? ` (${String(data.details).slice(0, 160)})` : "";
+        setError((data.error ?? "تعذر إنشاء الحساب") + detail);
         return;
       }
       setNotice(data.message ?? "تم إنشاء الحساب");

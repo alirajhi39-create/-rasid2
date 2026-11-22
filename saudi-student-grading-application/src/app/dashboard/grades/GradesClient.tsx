@@ -94,6 +94,7 @@ export default function GradesClient() {
 
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
   const [allSubjects, setAllSubjects] = useState<Subject[]>([]);
+  const [subjectsLoaded, setSubjectsLoaded] = useState(false);
   const [classroomId, setClassroomId] = useState<number | null>(null);
   const [subjectId, setSubjectId] = useState<number | null>(initialSubject);
   const [semester, setSemester] = useState<Semester>("first");
@@ -112,6 +113,7 @@ export default function GradesClient() {
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const pending = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const rowsRef = useRef<Row[]>([]);
+  const loadSeq = useRef(0);
 
   const pushToast = useCallback((kind: ToastItem["kind"], text: string) => {
     const id = Date.now() + Math.random();
@@ -128,7 +130,21 @@ export default function GradesClient() {
 
   const loadAllSubjects = useCallback(async () => {
     const res = await apiFetch<{ subjects: Subject[] }>("/api/subjects");
-    if (res.ok && res.data) setAllSubjects(res.data.subjects ?? []);
+    if (res.ok && res.data) {
+      // توحيد النوع: classroom_id قد يأتي نصاً من بعض الدرايفرز
+      const list = (res.data.subjects ?? []).map((s) => ({
+        ...s,
+        classroom_id:
+          s.classroom_id === null || s.classroom_id === undefined || (s.classroom_id as unknown) === ""
+            ? null
+            : Number(s.classroom_id),
+      }));
+      setAllSubjects(list);
+      setSubjectsLoaded(true);
+    } else {
+      // حتى عند الخطأ نعتبرها محمّلة حتى لا يبقى الاختيار معلّقاً
+      setSubjectsLoaded(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -147,19 +163,25 @@ export default function GradesClient() {
   );
 
   // عند تغيير الفصل: اختر أول مادة مرتبطة به (لا مادة غير مرتبطة)
+  // لا نُغيّر الاختيار قبل اكتمال تحميل المواد — وإلا تُفقد الدرجات عند التنقل
   useEffect(() => {
-    if (!classroomId) return;
+    if (!classroomId || !subjectsLoaded) return;
     setSubjectId((prev) =>
-      prev && classSubjects.some((s) => s.id === prev) ? prev : classSubjects[0]?.id ?? null,
+      prev && classSubjects.some((s) => s.id === prev) ? prev : (classSubjects[0]?.id ?? null),
     );
-  }, [classroomId, classSubjects]);
+  }, [classroomId, classSubjects, subjectsLoaded]);
+
+  // إعادة تعيين حالة "غير مرتبطة" عند تغيير المادة حتى لا يبقى تنبيه قديماً
+  useEffect(() => {
+    setIsUnlinked(false);
+  }, [subjectId]);
 
   // عند الفتح من رابط يحوي subjectId: اختر فصل تلك المادة
   useEffect(() => {
-    if (!initialSubject || classrooms.length === 0) return;
+    if (!initialSubject || classrooms.length === 0 || !subjectsLoaded) return;
     const found = allSubjects.find((s) => s.id === initialSubject);
     if (found?.classroom_id) setClassroomId(found.classroom_id);
-  }, [initialSubject, classrooms.length, allSubjects]);
+  }, [initialSubject, classrooms.length, allSubjects, subjectsLoaded]);
 
   /* ------------------------- تحميل صفوف الرصد ------------------------- */
   const loadRows = useCallback(async () => {
@@ -167,8 +189,11 @@ export default function GradesClient() {
       setRows([]);
       setItems([]);
       setSummary(null);
+      setIsUnlinked(false);
       return;
     }
+    // منع استجابة قديمة من التجاوز على الأحدث عند التنقل السريع
+    const seq = ++loadSeq.current;
     setLoading(true);
     const res = await apiFetch<{
       semester: Semester;
@@ -185,6 +210,7 @@ export default function GradesClient() {
       };
       rows: Row[];
     }>(`/api/grades?subjectId=${subjectId}&semester=${semester}`);
+    if (seq !== loadSeq.current) return; // تجاهل الاستجابة القديمة
     if (res.ok && res.data) {
       setItems(normalizeItems(res.data.subject.items ?? []));
       setTotalMax(res.data.subject.totalMax);
@@ -193,8 +219,7 @@ export default function GradesClient() {
       const loaded = res.data.rows ?? [];
       rowsRef.current = loaded;
       setRows(loaded);
-      if (res.data.semester) setSemester(res.data.semester);
-      // لا نلمس classroomId — منعاً لأي ربط تلقائي
+      // لا نلمس classroomId ولا semester — منعاً لأي ربط تلقائي أو حلقة إعادة تحميل
     } else if (res.error) {
       pushToast("error", res.error);
       setRows([]);

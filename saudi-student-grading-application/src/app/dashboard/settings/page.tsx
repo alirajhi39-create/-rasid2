@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/client";
 import {
@@ -190,6 +190,45 @@ export default function SettingsPage() {
       await loadTeachers();
     } else pushToast("error", res.error ?? "خطأ");
   }
+
+  /* ---------------------- النسخ الاحتياطي ---------------------- */
+  const [backupBusy, setBackupBusy] = useState<"export" | "import" | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const downloadBackup = () => {
+    setBackupBusy("export");
+    window.location.href = "/api/backup";
+    setTimeout(() => setBackupBusy(null), 2500);
+  };
+
+  const restoreBackup = async (file: File) => {
+    if (
+      !confirm(
+        "سيتم استبدال جميع بياناتك الحالية (الفصول والطلاب والمواد والدرجات) بمحتوى الملف.\nهل أنت متأكد من المتابعة؟",
+      )
+    ) {
+      return;
+    }
+    setBackupBusy("import");
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const res = await apiFetch<{ message: string }>("/api/backup", {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+      if (res.ok && res.data) {
+        pushToast("success", res.data.message ?? "تمت الاستعادة بنجاح");
+      } else {
+        pushToast("error", res.error ?? "تعذر الاستعادة");
+      }
+    } catch {
+      pushToast("error", "ملف غير صالح — تأكد أنه ملف نسخة احتياطية JSON");
+    } finally {
+      setBackupBusy(null);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
 
   const field = (key: keyof Settings) => ({
     value: settings[key],
@@ -428,6 +467,62 @@ export default function SettingsPage() {
           </Alert>
         </Card>
       )}
+
+      {/* النسخ الاحتياطي */}
+      <Card
+        title="النسخ الاحتياطي"
+        subtitle="تنزيل أسماء الطلاب ودرجاتهم كملف واحد، واستعادتها لاحقاً"
+        action={<Badge tone="emerald">JSON قابل للاستعادة</Badge>}
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={downloadBackup}
+            disabled={backupBusy === "export"}
+            className="group rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-right transition hover:border-emerald-300 hover:bg-emerald-100 disabled:opacity-60"
+          >
+            <p className="text-lg">⬇️</p>
+            <p className="mt-1 text-sm font-extrabold text-emerald-800">
+              {backupBusy === "export" ? "جارٍ التحضير..." : "تنزيل نسخة احتياطية"}
+            </p>
+            <p className="mt-1 text-[11px] leading-5 text-emerald-700">
+              ملف JSON يضم الفصول والطلاب (بأرقام السجل المدني) والمواد وجميع الدرجات للفصلين
+              الدراسيين.
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={backupBusy === "import"}
+            className="group rounded-2xl border border-sky-200 bg-sky-50 p-4 text-right transition hover:border-sky-300 hover:bg-sky-100 disabled:opacity-60"
+          >
+            <p className="text-lg">⬆️</p>
+            <p className="mt-1 text-sm font-extrabold text-sky-800">
+              {backupBusy === "import" ? "جارٍ الاستعادة..." : "استعادة نسخة احتياطية"}
+            </p>
+            <p className="mt-1 text-[11px] leading-5 text-sky-700">
+              يستبدل بياناتك الحالية بمحتوى الملف — يُفضّل تنزيل نسخة قبل الاستعادة.
+            </p>
+          </button>
+        </div>
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void restoreBackup(file);
+          }}
+        />
+
+        <Alert kind="warn" className="mt-4">
+          النسخة الاحتياطية تخص حسابك وبياناتك أنت فقط — لا تُعدّ مفتاحاً للاستعادة على حساب آخر
+          بدل ترحيل الفصول يدوياً.
+        </Alert>
+      </Card>
 
       {/* حالة قاعدة البيانات */}
       <Card title="حالة قاعدة البيانات" subtitle="الاتصال التلقائي مع Neon PostgreSQL / Vercel">

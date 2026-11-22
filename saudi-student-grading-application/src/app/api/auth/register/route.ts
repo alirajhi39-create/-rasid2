@@ -18,7 +18,8 @@ export const runtime = "nodejs";
  */
 export async function POST(request: Request) {
   try {
-    await ensureDatabase();
+    // التهيئة غير قاتلة: إذا فشلت (مثلاً لازمة ترحيل بطيئة) نتابع لأن الجداول موجودة غالباً
+    await ensureDatabase().catch(() => undefined);
     const body = (await request.json().catch(() => ({}))) as {
       fullName?: string;
       username?: string;

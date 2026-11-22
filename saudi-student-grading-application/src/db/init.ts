@@ -15,6 +15,21 @@ async function runRaw(statement: string) {
   await db.execute(sql.raw(statement));
 }
 
+/**
+ * تنفيذ أمر DDL بأمان عند التزامن (برود سيرفر يعمل عدة عمليات معاً).
+ * إذا نجح أمر آخر مسبقاً نتجاهل الخطأ بدل أن يفشل التهيئة كلها.
+ */
+async function runRawSafe(statement: string) {
+  try {
+    await db.execute(sql.raw(statement));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // تجاهل الأخطاء المتوقعة عند التزامن: وجود القيد/العمود/الفهرس مسبقاً
+    if (/already exists|duplicate key|cannot alter type|depends on/i.test(message)) return;
+    throw error;
+  }
+}
+
 export async function initDatabase() {
   const steps: string[] = [];
 
@@ -59,11 +74,9 @@ export async function initDatabase() {
       created_at timestamptz NOT NULL DEFAULT now()
     )`);
   // ترقية القواعد القديمة: إضافة عمود المعلم المالك ثم ربط الصفوف الحالية بأول حساب
-  await runRaw(`ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS user_id integer`);
-  await runRaw(
-    `ALTER TABLE classrooms DROP CONSTRAINT IF EXISTS classrooms_user_id_fkey`,
-  );
-  await runRaw(
+  await runRawSafe(`ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS user_id integer`);
+  await runRawSafe(`ALTER TABLE classrooms DROP CONSTRAINT IF EXISTS classrooms_user_id_fkey`);
+  await runRawSafe(
     `ALTER TABLE classrooms ADD CONSTRAINT classrooms_user_id_fkey
      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE`,
   );
@@ -117,21 +130,21 @@ export async function initDatabase() {
 
   // ---- دعم فك ربط المادة عن الفصل (classroom_id يقبل NULL) ----
   // الملكية تُخزَّن في subjects.user_id حتى لا تُربط المادة تلقائياً بعد فك الربط
-  await runRaw(`ALTER TABLE subjects ADD COLUMN IF NOT EXISTS user_id integer`);
+  await runRawSafe(`ALTER TABLE subjects ADD COLUMN IF NOT EXISTS user_id integer`);
   await runRaw(`
     UPDATE subjects s SET user_id = c.user_id
     FROM classrooms c WHERE c.id = s.classroom_id AND s.user_id IS NULL`);
   await runRaw(`
     UPDATE subjects SET user_id = (SELECT MIN(id) FROM users)
     WHERE user_id IS NULL OR user_id NOT IN (SELECT id FROM users)`);
-  await runRaw(`ALTER TABLE subjects ALTER COLUMN user_id SET NOT NULL`);
-  await runRaw(`ALTER TABLE subjects ALTER COLUMN user_id SET DEFAULT 1`);
-  await runRaw(`ALTER TABLE subjects DROP CONSTRAINT IF EXISTS subjects_user_id_fkey`);
-  await runRaw(
+  await runRawSafe(`ALTER TABLE subjects ALTER COLUMN user_id SET NOT NULL`);
+  await runRawSafe(`ALTER TABLE subjects ALTER COLUMN user_id SET DEFAULT 1`);
+  await runRawSafe(`ALTER TABLE subjects DROP CONSTRAINT IF EXISTS subjects_user_id_fkey`);
+  await runRawSafe(
     `ALTER TABLE subjects ADD CONSTRAINT subjects_user_id_fkey
      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE`,
   );
-  await runRaw(`ALTER TABLE subjects ALTER COLUMN classroom_id DROP NOT NULL`);
+  await runRawSafe(`ALTER TABLE subjects ALTER COLUMN classroom_id DROP NOT NULL`);
   // منع تكرار اسم المادة غير المرتبطة لنفس المعلم
   await runRaw(`DROP INDEX IF EXISTS subjects_unlinked_user_name_unique`);
   await runRaw(
@@ -169,10 +182,10 @@ export async function initDatabase() {
       total numeric(6,2) NOT NULL DEFAULT 0,
       updated_at timestamptz NOT NULL DEFAULT now()
     )`);
-  await runRaw(`ALTER TABLE grades ADD COLUMN IF NOT EXISTS semester text`);
+  await runRawSafe(`ALTER TABLE grades ADD COLUMN IF NOT EXISTS semester text`);
   await runRaw(`UPDATE grades SET semester = 'first' WHERE semester IS NULL OR semester = ''`);
-  await runRaw(`ALTER TABLE grades ALTER COLUMN semester SET NOT NULL`);
-  await runRaw(`ALTER TABLE grades ALTER COLUMN semester SET DEFAULT 'first'`);
+  await runRawSafe(`ALTER TABLE grades ALTER COLUMN semester SET NOT NULL`);
+  await runRawSafe(`ALTER TABLE grades ALTER COLUMN semester SET DEFAULT 'first'`);
   await runRaw(`DROP INDEX IF EXISTS grades_student_subject_unique`);
   await runRaw(
     `CREATE UNIQUE INDEX IF NOT EXISTS grades_student_subject_semester_unique
