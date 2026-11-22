@@ -6,7 +6,18 @@ import { ownsSubject } from "@/lib/ownership";
 import PrintToolbar from "@/components/print/PrintToolbar";
 import { OfficialHeader, SignaturesFooter } from "@/components/print/OfficialHeader";
 import { loadPrintSettings } from "@/components/print/settings";
-import { getRating, round2, statsFor, toArabicDigits, toPeriod, yearAverage, yearTotal } from "@/lib/grades";
+import {
+  computeGroupTotal,
+  getRating,
+  normalizeItems,
+  periodAverage,
+  round2,
+  statsFor,
+  toArabicDigits,
+  yearAverage,
+  yearTotal,
+} from "@/lib/grades";
+import { GROUP_LABEL, toGroup } from "@/lib/constants";
 import { SEMESTER_LABEL, toSemester } from "@/lib/constants";
 import type { GradeValues, ScoreItem } from "@/db/schema";
 
@@ -17,9 +28,10 @@ type Meta = {
   items: ScoreItem[];
   total_max: string;
   passing_score: string;
-  grade: string;
-  section: string;
-  stage: string;
+  grade: string | null;
+  section: string | null;
+  stage: string | null;
+  classroom_id: number | null;
 };
 
 type Row = {
@@ -36,11 +48,12 @@ type Row = {
 export default async function PrintClassPage({
   searchParams,
 }: {
-  searchParams: Promise<{ subjectId?: string; semester?: string }>;
+  searchParams: Promise<{ subjectId?: string; semester?: string; hideNid?: string }>;
 }) {
   const params = await searchParams;
   const subjectId = Number(params.subjectId);
   const semester = toSemester(params.semester);
+  const hideNid = params.hideNid === "1";
 
   const session = await getSession();
   if (!session) {
@@ -57,7 +70,7 @@ export default async function PrintClassPage({
   if (!authorized.owned) {
     return (
       <>
-        <PrintToolbar title="كشف درجات الفصل" autoPrint={false} />
+        <PrintToolbar title="كشف درجات الفصل" autoPrint={false} hideNid={hideNid} supportsNid={false} />
         <div className="rounded-2xl bg-white p-10 text-center">
           <p className="text-lg font-bold text-slate-700">غير مصرح بعرض هذا الكشف</p>
           <p className="mt-2 text-sm text-slate-500">هذه المادة ليست من موادك.</p>
@@ -70,8 +83,8 @@ export default async function PrintClassPage({
 
   const metaResult = await db.execute<Meta>(sql`
     SELECT s.name AS subject_name, s.items, s.total_max, s.passing_score,
-           c.grade, c.section, c.stage
-    FROM subjects s JOIN classrooms c ON c.id = s.classroom_id
+           s.classroom_id, c.grade, c.section, c.stage
+    FROM subjects s LEFT JOIN classrooms c ON c.id = s.classroom_id
     WHERE s.id = ${Number.isFinite(subjectId) ? subjectId : 0} LIMIT 1
   `);
   const meta = metaResult.rows?.[0];
@@ -79,10 +92,24 @@ export default async function PrintClassPage({
   if (!meta) {
     return (
       <>
-        <PrintToolbar title="كشف درجات الفصل" autoPrint={false} />
+        <PrintToolbar title="كشف درجات الفصل" autoPrint={false} hideNid={hideNid} supportsNid={false} />
         <div className="rounded-2xl bg-white p-10 text-center">
           <p className="text-lg font-bold text-slate-700">لم يتم تحديد مادة صحيحة</p>
           <p className="mt-2 text-sm text-slate-500">ارجع إلى صفحة التقارير واختر الفصل والمادة.</p>
+        </div>
+      </>
+    );
+  }
+
+  if (!meta.classroom_id) {
+    return (
+      <>
+        <PrintToolbar title={"كشف درجات الفصل"} autoPrint={false} />
+        <div className="rounded-2xl bg-white p-10 text-center">
+          <p className="text-lg font-bold text-slate-700">المادة غير مرتبطة بفصل دراسي</p>
+          <p className="mt-2 text-sm text-slate-500">
+            اربط المادة بأحد فصولك من صفحة المواد ثم أعد الطباعة.
+          </p>
         </div>
       </>
     );
@@ -94,11 +121,11 @@ export default async function PrintClassPage({
     FROM students st
     LEFT JOIN grades g1 ON g1.student_id = st.id AND g1.subject_id = ${subjectId} AND g1.semester = 'first'
     LEFT JOIN grades g2 ON g2.student_id = st.id AND g2.subject_id = ${subjectId} AND g2.semester = 'second'
-    WHERE st.classroom_id = (SELECT classroom_id FROM subjects WHERE id = ${subjectId}) AND st.active = true
+    WHERE st.classroom_id = ${meta.classroom_id} AND st.active = true
     ORDER BY COALESCE(st.class_number, 999999), st.full_name
   `);
 
-  const items = (meta.items ?? []).map((item) => ({ ...item, period: toPeriod(item.period) }));
+  const items = normalizeItems(meta.items ?? []);
   const totalMax = Number(meta.total_max);
   const passingScore = Number(meta.passing_score);
   const rows = rowsResult.rows ?? [];
@@ -109,8 +136,8 @@ export default async function PrintClassPage({
 
   const stats = statsFor(rows.map((r) => ({ total: semTotal(r) })), totalMax, passingScore);
 
-  const periodGroups = (["p1", "p2"] as const)
-    .map((p) => ({ period: p, list: items.filter((i) => i.period === p) }))
+  const groupColumns = (["performance", "written"] as const)
+    .map((g) => ({ group: g, list: items.filter((i) => toGroup(i.group) === g) }))
     .filter((g) => g.list.length > 0);
 
   const gradedOther = rows.filter((r) => otherTotal(r) > 0).length;
@@ -118,6 +145,15 @@ export default async function PrintClassPage({
   const avgYear = rows.length
     ? round2(rows.reduce((s, r) => s + yearTotal({ first: Number(r.t1 ?? 0), second: Number(r.t2 ?? 0) }), 0) / rows.length)
     : 0;
+  const avgPeriodMean = rows.length
+    ? round2(rows.reduce((s, r) => s + periodAverage(items, semValues(r)), 0) / rows.length)
+    : 0;
+  // مجموع كل مجموعة لكل طالب (المهام الأدائية / التقويمات التحريرية)
+  const groupGot = (row: Row, group: "performance" | "written") =>
+    computeGroupTotal(items, semValues(row), group).got;
+  const groupMaxOf = (group: "performance" | "written") =>
+    groupColumns.find((g) => g.group === group)?.list.reduce((s, i) => s + i.max, 0) ?? 0;
+
   const avgMean = rows.length
     ? round2(
         rows.reduce(
@@ -129,13 +165,15 @@ export default async function PrintClassPage({
 
   return (
     <>
-      <PrintToolbar title={`كشف درجات — ${meta.subject_name} — ${SEMESTER_LABEL[semester]}`} />
+      <PrintToolbar
+        title={`كشف درجات — ${meta.subject_name} — ${SEMESTER_LABEL[semester]}`}
+        hideNid={hideNid}
+      />
 
       <div className="print-area print-page rounded-2xl bg-white p-6 shadow-lg sm:p-8">
         <OfficialHeader
           settings={settings}
           title={`كشف رصد درجات مادة ${meta.subject_name}`}
-          subtitle={<span className="text-slate-300">|</span>}
           meta={
             <span>
               {SEMESTER_LABEL[semester]} · الصف {meta.grade} — الشعبة {meta.section} · المرحلة {meta.stage} ·
@@ -147,53 +185,53 @@ export default async function PrintClassPage({
         <table className="w-full border-collapse text-center text-[9.5pt]">
           <thead>
             <tr className="bg-slate-100 font-extrabold">
-              <th rowSpan={2} className="border border-slate-500 px-1 py-1.5">
+              <th className="border border-slate-500 px-1 py-1.5">
                 م
               </th>
-              <th rowSpan={2} className="border border-slate-500 px-2 py-1.5">
+              <th className="border border-slate-500 px-2 py-1.5">
                 اسم الطالب
               </th>
-              <th rowSpan={2} className="border border-slate-500 px-1 py-1.5">
-                الهوية
-              </th>
-              {periodGroups.map((group) => (
-                <th key={group.period} colSpan={group.list.length} className="border border-slate-500 px-1 py-1.5">
-                  {group.period === "p1" ? "الفترة الأولى" : "الفترة الثانية"}
-                  <span className="font-normal"> ({toArabicDigits(group.list.reduce((s, i) => s + i.max, 0))})</span>
+              {!hideNid && (
+                <th className="border border-slate-500 px-1 py-1.5">الهوية</th>
+              )}
+              {groupColumns.map((g) => (
+                <th
+                  key={g.group}
+                  className={`border border-slate-500 px-1.5 py-2 text-[10.5pt] ${
+                    g.group === "performance" ? "bg-sky-100" : "bg-violet-100"
+                  }`}
+                >
+                  {GROUP_LABEL[g.group]}
+                  <br />
+                  <span className="text-[9pt] font-normal">
+                    ({toArabicDigits(g.list.reduce((s, i) => s + i.max, 0))})
+                  </span>
                 </th>
               ))}
-              <th rowSpan={2} className="border border-slate-500 px-1 py-1.5">
+              <th className="border border-slate-500 px-1 py-1.5">
                 المجموع ({toArabicDigits(totalMax)})
               </th>
-              <th rowSpan={2} className="border border-slate-500 px-1 py-1.5">
+              <th className="border border-slate-500 px-1 py-1.5">
+                متوسط الفترتين
+              </th>
+              <th className="border border-slate-500 px-1 py-1.5">
                 %
               </th>
-              <th rowSpan={2} className="border border-slate-500 px-1 py-1.5">
+              <th className="border border-slate-500 px-1 py-1.5">
                 التقدير
               </th>
-              <th rowSpan={2} className="border border-slate-500 px-1 py-1.5">
+              <th className="border border-slate-500 px-1 py-1.5">
                 الفصل الآخر
               </th>
-              <th rowSpan={2} className="border border-slate-500 bg-slate-200 px-1 py-1.5">
+              <th className="border border-slate-500 bg-slate-200 px-1 py-1.5">
                 مجموع الفصلين
               </th>
-              <th rowSpan={2} className="border border-slate-500 bg-slate-200 px-1 py-1.5">
+              <th className="border border-slate-500 bg-slate-200 px-1 py-1.5">
                 المتوسط
               </th>
-              <th rowSpan={2} className="border border-slate-500 px-1 py-1.5">
+              <th className="border border-slate-500 px-1 py-1.5">
                 النتيجة
               </th>
-            </tr>
-            <tr className="bg-slate-50 text-[8.5pt] font-bold">
-              {periodGroups.flatMap((group) =>
-                group.list.map((item) => (
-                  <th key={item.id} className="border border-slate-500 px-1 py-1">
-                    {item.label}
-                    <br />
-                    <span className="font-normal">({toArabicDigits(item.max)})</span>
-                  </th>
-                )),
-              )}
             </tr>
           </thead>
           <tbody>
@@ -202,6 +240,7 @@ export default async function PrintClassPage({
               const total = semTotal(row);
               const pct = totalMax > 0 ? (total / totalMax) * 100 : 0;
               const rating = getRating(total, totalMax, passingScore);
+              const pAvg = periodAverage(items, values);
               const other = otherTotal(row);
               const yT = yearTotal(
                 semester === "first" ? { first: total, second: other } : { first: other, second: total },
@@ -217,20 +256,29 @@ export default async function PrintClassPage({
                   <td className="border border-slate-400 px-2 py-1 text-right font-semibold">
                     {row.full_name}
                   </td>
-                  <td dir="ltr" className="border border-slate-400 px-1 py-1 text-[8pt] tabular-nums">
-                    {row.national_id ?? "—"}
-                  </td>
-                  {periodGroups.flatMap((group) =>
-                    group.list.map((item) => (
-                      <td key={item.id} className="border border-slate-400 px-1 py-1 tabular-nums">
-                        {typeof values[item.id] === "number"
-                          ? toArabicDigits(values[item.id] as number)
-                          : "—"}
-                      </td>
-                    )),
+                  {!hideNid && (
+                    <td dir="ltr" className="border border-slate-400 px-1 py-1 text-[8pt] tabular-nums">
+                      {row.national_id ?? "—"}
+                    </td>
                   )}
+                  {groupColumns.map((g) => {
+                    const got = groupGot(row, g.group);
+                    return (
+                      <td
+                        key={g.group}
+                        className={`border border-slate-400 px-1 py-1 font-extrabold tabular-nums ${
+                          g.group === "performance" ? "bg-sky-50" : "bg-violet-50"
+                        }`}
+                      >
+                        {got > 0 ? toArabicDigits(got) : "—"}
+                      </td>
+                    );
+                  })}
                   <td className="border border-slate-400 px-1 py-1 font-extrabold tabular-nums">
                     {toArabicDigits(total)}
+                  </td>
+                  <td className="border border-slate-400 px-1 py-1 font-bold tabular-nums">
+                    {pAvg > 0 ? toArabicDigits(pAvg) : "—"}
                   </td>
                   <td className="border border-slate-400 px-1 py-1 tabular-nums">
                     {totalMax > 0 ? `${toArabicDigits(Math.round(pct))}%` : "—"}
@@ -256,16 +304,31 @@ export default async function PrintClassPage({
               );
             })}
             <tr className="bg-slate-100 font-extrabold">
-              <td colSpan={3} className="border border-slate-500 px-2 py-1.5 text-right">
+              <td colSpan={hideNid ? 2 : 3} className="border border-slate-500 px-2 py-1.5 text-right">
                 الإحصاء: الطلاب {toArabicDigits(stats.count)} · الناجحون {toArabicDigits(stats.passed)} ·
                 الراسبون {toArabicDigits(stats.failed)} · المتوسط {toArabicDigits(stats.avg)} · النسبة{" "}
                 {toArabicDigits(stats.pct)}%
               </td>
-              <td colSpan={items.length} className="border border-slate-500 px-1 py-1.5">
-                أعلى: {toArabicDigits(stats.highest)} · أدنى: {toArabicDigits(stats.lowest)}
-              </td>
+              {groupColumns.map((g) => {
+                const avg = rows.length
+                  ? round2(rows.reduce((s, r) => s + groupGot(r, g.group), 0) / rows.length)
+                  : 0;
+                return (
+                  <td
+                    key={g.group}
+                    className={`border border-slate-500 px-1 py-1.5 tabular-nums ${
+                      g.group === "performance" ? "bg-sky-50" : "bg-violet-50"
+                    }`}
+                  >
+                    {toArabicDigits(avg)}
+                  </td>
+                );
+              })}
               <td className="border border-slate-500 px-1 py-1.5 tabular-nums">
                 {toArabicDigits(stats.avg)}
+              </td>
+              <td className="border border-slate-500 px-1 py-1.5 tabular-nums">
+                {avgPeriodMean > 0 ? toArabicDigits(avgPeriodMean) : "—"}
               </td>
               <td className="border border-slate-500 px-1 py-1.5 tabular-nums">
                 {toArabicDigits(stats.pct)}%

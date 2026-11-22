@@ -95,17 +95,37 @@ input[type="number"] {
   animation: pop 0.2s ease-out both;
 }
 
-/* ==================== أنماط الطباعة النظيفة ==================== */
+/* ==================== أنماط الطباعة ==================== */
+/* الاتجاه الافتراضي: أفقي (Landscape).
+   للتبديل إلى عمودي يُحقن مكوّن PrintToolbar قاعدة
+   <style>@page{size:A4 portrait}</style> ديناميكياً. */
+
 @media print {
+  /* الاتجاه الافتراضي: أفقي A4 (يُستبدل ديناميكياً عند التبديل للعمودي) */
   @page {
     size: A4 landscape;
-    margin: 10mm 8mm;
+    margin: 8mm 7mm;
   }
 
   html,
   body {
     background: #fff !important;
     font-family: var(--font-print);
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* حاوية الطباعة: عرض كامل بدون هوامش أو خلفية رمادية */
+  .print-shell,
+  .print-shell-inner {
+    max-width: none !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    display: block !important;
   }
 
   .no-print,
@@ -126,29 +146,43 @@ input[type="number"] {
     max-width: 100% !important;
     border-radius: 0 !important;
     background: #fff !important;
+    overflow: visible !important;
   }
 
-  .print-page {
-    page-break-after: always;
-    break-after: page;
-  }
-  .print-page:last-child {
-    page-break-after: auto;
-    break-after: auto;
+  /* فاصل الصفحات: بين أسطح الطباعة المتتابعة فقط — بدون صفحة فارغة في النهاية */
+  .print-area + .print-area {
+    page-break-before: always;
+    break-before: page;
   }
 
   table {
     width: 100% !important;
+    max-width: 100% !important;
     border-collapse: collapse !important;
-    font-size: 10.5pt;
+    font-size: 10pt;
+  }
+
+  /* منع تكسير الصفوف عبر الصفحات */
+  tr,
+  thead,
+  tfoot,
+  .avoid-break {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group;
   }
 
   th,
   td {
     border: 1px solid #333 !important;
-    padding: 4px 5px !important;
+    padding: 3px 4px !important;
     color: #000 !important;
     background: #fff !important;
+    overflow-wrap: break-word;
+    word-break: break-word;
   }
 
   thead th {
@@ -157,14 +191,48 @@ input[type="number"] {
     print-color-adjust: exact;
   }
 
-  tr,
-  .avoid-break {
-    page-break-inside: avoid;
-    break-inside: avoid;
-  }
-
   a[href]::after {
     content: "";
+  }
+
+  /* ===== الإشعارات: أعمدة متعددة تُفرَّغ تلقائياً ===== */
+  .notices-grid {
+    display: block !important;
+    column-count: 2;
+    column-gap: 5mm;
+    column-fill: auto;
+  }
+
+  html.print-portrait .notices-grid {
+    column-count: 1;
+  }
+
+  .notices-grid > .print-area {
+    padding: 0 !important;
+    margin: 0 0 5mm 0;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    border-bottom: 1px dashed #94a3b8;
+  }
+
+  .notices-grid > .print-area:last-child {
+    border-bottom: none;
+  }
+
+  /* في العمودي: إشعار واحد في كل صفحة */
+  html.print-portrait .notices-grid > .print-area {
+    break-after: page;
+    page-break-after: always;
+    border-bottom: none;
+  }
+
+  html.print-portrait .notices-grid > .print-area:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .notices-grid table {
+    font-size: 8.5pt !important;
   }
 }
 

@@ -7,6 +7,7 @@ import PrintToolbar from "@/components/print/PrintToolbar";
 import { OfficialHeader, SignaturesFooter } from "@/components/print/OfficialHeader";
 import { loadPrintSettings } from "@/components/print/settings";
 import { getRating, round2, toArabicDigits, yearAverage, yearTotal } from "@/lib/grades";
+import { GROUP_LABEL } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +15,10 @@ type Meta = {
   subject_name: string;
   total_max: string;
   passing_score: string;
-  grade: string;
-  section: string;
-  stage: string;
+  grade: string | null;
+  section: string | null;
+  stage: string | null;
+  classroom_id: number | null;
 };
 
 type Row = {
@@ -31,10 +33,11 @@ type Row = {
 export default async function PrintYearPage({
   searchParams,
 }: {
-  searchParams: Promise<{ subjectId?: string }>;
+  searchParams: Promise<{ subjectId?: string; hideNid?: string }>;
 }) {
-  const { subjectId: rawSubjectId } = await searchParams;
+  const { subjectId: rawSubjectId, hideNid: rawHideNid } = await searchParams;
   const subjectId = Number(rawSubjectId);
+  const hideNid = rawHideNid === "1";
 
   const session = await getSession();
   if (!session) {
@@ -50,7 +53,7 @@ export default async function PrintYearPage({
   if (!authorized.owned) {
     return (
       <>
-        <PrintToolbar title="الكشف السنوي" autoPrint={false} />
+        <PrintToolbar title="الكشف السنوي" autoPrint={false} hideNid={hideNid} supportsNid={false} />
         <div className="rounded-2xl bg-white p-10 text-center">
           <p className="text-lg font-bold text-slate-700">غير مصرح بعرض هذا الكشف</p>
         </div>
@@ -62,8 +65,8 @@ export default async function PrintYearPage({
 
   const metaResult = await db.execute<Meta>(sql`
     SELECT s.name AS subject_name, s.total_max, s.passing_score,
-           c.grade, c.section, c.stage
-    FROM subjects s JOIN classrooms c ON c.id = s.classroom_id
+           s.classroom_id, c.grade, c.section, c.stage
+    FROM subjects s LEFT JOIN classrooms c ON c.id = s.classroom_id
     WHERE s.id = ${Number.isFinite(subjectId) ? subjectId : 0} LIMIT 1
   `);
   const meta = metaResult.rows?.[0];
@@ -71,9 +74,23 @@ export default async function PrintYearPage({
   if (!meta) {
     return (
       <>
-        <PrintToolbar title="الكشف السنوي" autoPrint={false} />
+        <PrintToolbar title="الكشف السنوي" autoPrint={false} hideNid={hideNid} supportsNid={false} />
         <div className="rounded-2xl bg-white p-10 text-center">
           <p className="text-lg font-bold text-slate-700">لم يتم تحديد مادة صحيحة</p>
+        </div>
+      </>
+    );
+  }
+
+  if (!meta.classroom_id) {
+    return (
+      <>
+        <PrintToolbar title={"الكشف السنوي"} autoPrint={false} />
+        <div className="rounded-2xl bg-white p-10 text-center">
+          <p className="text-lg font-bold text-slate-700">المادة غير مرتبطة بفصل دراسي</p>
+          <p className="mt-2 text-sm text-slate-500">
+            اربط المادة بأحد فصولك من صفحة المواد ثم أعد الطباعة.
+          </p>
         </div>
       </>
     );
@@ -85,7 +102,7 @@ export default async function PrintYearPage({
     FROM students st
     LEFT JOIN grades g1 ON g1.student_id = st.id AND g1.subject_id = ${subjectId} AND g1.semester = 'first'
     LEFT JOIN grades g2 ON g2.student_id = st.id AND g2.subject_id = ${subjectId} AND g2.semester = 'second'
-    WHERE st.classroom_id = (SELECT classroom_id FROM subjects WHERE id = ${subjectId}) AND st.active = true
+    WHERE st.classroom_id = ${meta.classroom_id} AND st.active = true
     ORDER BY COALESCE(st.class_number, 999999), st.full_name
   `);
 
@@ -113,13 +130,12 @@ export default async function PrintYearPage({
 
   return (
     <>
-      <PrintToolbar title={`الكشف السنوي — ${meta.subject_name}`} />
+      <PrintToolbar title={`الكشف السنوي — ${meta.subject_name}`} hideNid={hideNid} />
 
       <div className="print-area print-page rounded-2xl bg-white p-6 shadow-lg sm:p-8">
         <OfficialHeader
           settings={settings}
           title={`الكشف السنوي لمجموع الفصلين — مادة ${meta.subject_name}`}
-          subtitle={<span className="text-slate-300">|</span>}
           meta={
             <span>
               الصف {meta.grade} — الشعبة {meta.section} · المرحلة {meta.stage} · عدد الطلاب{" "}
@@ -151,7 +167,7 @@ export default async function PrintYearPage({
             <tr className="bg-slate-100 font-extrabold">
               <th className="border border-slate-500 px-1 py-1.5">م</th>
               <th className="border border-slate-500 px-2 py-1.5 text-right">اسم الطالب</th>
-              <th className="border border-slate-500 px-1 py-1.5">الهوية</th>
+              {!hideNid && <th className="border border-slate-500 px-1 py-1.5">الهوية</th>}
               <th className="border border-slate-500 px-1 py-1.5">
                 الفصل الأول ({toArabicDigits(totalMax)})
               </th>
@@ -163,7 +179,7 @@ export default async function PrintYearPage({
               <th className="border border-slate-500 bg-slate-200 px-1 py-1.5">
                 مجموع الفصلين ({toArabicDigits(yearMaxValue)})
               </th>
-              <th className="border border-slate-500 bg-slate-200 px-1 py-1.5">المتوسط</th>
+              <th className="border border-slate-500 bg-slate-200 px-1 py-1.5">متوسط مجموع الفصلين</th>
               <th className="border border-slate-500 px-1 py-1.5">%</th>
               <th className="border border-slate-500 px-1 py-1.5">النتيجة السنوية</th>
             </tr>
@@ -186,9 +202,11 @@ export default async function PrintYearPage({
                   <td className="border border-slate-400 px-2 py-1 text-right font-semibold">
                     {row.full_name}
                   </td>
-                  <td dir="ltr" className="border border-slate-400 px-1 py-1 text-[8pt] tabular-nums">
-                    {row.national_id ?? "—"}
-                  </td>
+                  {!hideNid && (
+                    <td dir="ltr" className="border border-slate-400 px-1 py-1 text-[8pt] tabular-nums">
+                      {row.national_id ?? "—"}
+                    </td>
+                  )}
                   <td className="border border-slate-400 px-1 py-1 font-bold tabular-nums">
                     {first > 0 ? toArabicDigits(first) : "—"}
                   </td>
@@ -219,7 +237,7 @@ export default async function PrintYearPage({
               );
             })}
             <tr className="bg-slate-100 font-extrabold">
-              <td colSpan={3} className="border border-slate-500 px-2 py-1.5 text-right">
+              <td colSpan={hideNid ? 2 : 3} className="border border-slate-500 px-2 py-1.5 text-right">
                 الإحصاء السنوي
               </td>
               <td className="border border-slate-500 px-1 py-1.5 tabular-nums">{toArabicDigits(avgFirst)}</td>

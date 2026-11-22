@@ -5,8 +5,8 @@ import { db } from "@/db";
 import { requireSession } from "@/lib/auth";
 import { ensureDatabase } from "@/lib/bootstrap";
 import { ownsSubject } from "@/lib/ownership";
-import { computeGroupTotal, getRating, round2, yearAverage, yearTotal } from "@/lib/grades";
-import { toPeriod } from "@/lib/grades";
+import { getRating, normalizeItems, periodAverage, round2, yearAverage, yearTotal } from "@/lib/grades";
+import { GROUP_LABEL, PERIOD_SHORT, toGroup } from "@/lib/constants";
 import type { GradeValues, ScoreItem, Semester } from "@/db/schema";
 
 export const dynamic = "force-dynamic";
@@ -37,19 +37,20 @@ export async function GET(request: Request) {
     items: ScoreItem[];
     total_max: string;
     passing_score: string;
-    grade: string;
-    section: string;
-    stage: string;
+    grade: string | null;
+    section: string | null;
+    stage: string | null;
+    classroom_id: number | null;
     school_name: string;
     academic_year: string;
     teacher: string;
   }>(sql`
-    SELECT s.id, s.name, s.items, s.total_max, s.passing_score,
+    SELECT s.id, s.name, s.items, s.total_max, s.passing_score, s.classroom_id,
            c.grade, c.section, c.stage,
            st.school_name, st.academic_year,
            COALESCE(NULLIF(u.full_name, ''), st.teacher_name) AS teacher
     FROM subjects s
-    JOIN classrooms c ON c.id = s.classroom_id
+    LEFT JOIN classrooms c ON c.id = s.classroom_id
     CROSS JOIN app_settings st
     LEFT JOIN users u ON u.id = ${guard.session.uid}
     WHERE s.id = ${subjectId} LIMIT 1
@@ -75,33 +76,40 @@ export async function GET(request: Request) {
     FROM students st
     LEFT JOIN grades g1 ON g1.student_id = st.id AND g1.subject_id = ${subjectId} AND g1.semester = 'first'
     LEFT JOIN grades g2 ON g2.student_id = st.id AND g2.subject_id = ${subjectId} AND g2.semester = 'second'
-    WHERE st.classroom_id = (SELECT classroom_id FROM subjects WHERE id = ${subjectId}) AND st.active = true
+    WHERE st.classroom_id = ${subject.classroom_id} AND st.active = true
     ORDER BY COALESCE(st.class_number, 999999), st.full_name
   `);
 
-  const items = (subject.items ?? []).map((item) => ({ ...item, period: toPeriod(item.period) }));
+  const items = normalizeItems(subject.items ?? []);
   const periods: Semester[] = ["first", "second"];
   const totalMax = Number(subject.total_max);
   const passingScore = Number(subject.passing_score);
   const students = rowsResult.rows ?? [];
 
-  const periodGroupped = (["p1", "p2"] as const)
-    .map((p) => ({ period: p, list: items.filter((i) => i.period === p) }))
+  const groupGroupped = (["performance", "written"] as const)
+    .map((g) => ({ group: g, list: items.filter((i) => toGroup(i.group) === g) }))
     .filter((g) => g.list.length > 0);
 
   /* ---------------- ورقة ١: كشف رصد بنظام نور (الفصلان والفترتان) ---------------- */
   const header1 = ["الرقم", "رقم الهوية", "اسم الطالب (الرباعي)"];
   for (const sem of periods) {
-    for (const group of periodGroupped) {
-      for (const item of group.list) {
-        header1.push(`${item.label} — ${group.period === "p1" ? "ف١" : "ف٢"} — ${sem === "first" ? "فصل ١" : "فصل ٢"}`);
+    for (const grp of groupGroupped) {
+      for (const item of grp.list) {
+        header1.push(
+          `${item.label} [${GROUP_LABEL[grp.group]} ${PERIOD_SHORT[item.period]}] — ${sem === "first" ? "فصل ١" : "فصل ٢"}`,
+        );
       }
     }
-    header1.push(`مجموع ${sem === "first" ? "الفصل الأول" : "الفصل الثاني"}`);
-    header1.push("النسبة %");
-    header1.push("التقدير");
+    header1.push(
+      `مجموع المهام الأدائية (${sem === "first" ? "فصل ١" : "فصل ٢"})`,
+      `مجموع التقويمات التحريرية (${sem === "first" ? "فصل ١" : "فصل ٢"})`,
+      `مجموع ${sem === "first" ? "الفصل الأول" : "الفصل الثاني"}`,
+      "متوسط الفترتين",
+      "النسبة %",
+      "التقدير",
+    );
   }
-  header1.push("مجموع الفصلين", "المتوسط", "النتيجة السنوية");
+  header1.push("مجموع الفصلين", "متوسط الفصلين", "النتيجة السنوية");
 
   const dataRows = students.map((row, index) => {
     const v1 = (row.v1 ?? {}) as GradeValues;
@@ -115,16 +123,25 @@ export async function GET(request: Request) {
     ];
     for (const sem of periods) {
       const values = sem === "first" ? v1 : v2;
-      for (const group of periodGroupped) {
-        for (const item of group.list) {
+      for (const grp of groupGroupped) {
+        for (const item of grp.list) {
           const v = values[item.id];
           out.push(typeof v === "number" ? v : "");
         }
       }
       const semTotal = sem === "first" ? t1 : t2;
       const rating = getRating(semTotal, totalMax, passingScore);
+      const perfSum = groupGroupped
+        .find((g) => g.group === "performance")
+        ?.list.reduce((s2, i) => s2 + (typeof values[i.id] === "number" ? (values[i.id] as number) : 0), 0) ?? 0;
+      const writSum = groupGroupped
+        .find((g) => g.group === "written")
+        ?.list.reduce((s2, i) => s2 + (typeof values[i.id] === "number" ? (values[i.id] as number) : 0), 0) ?? 0;
       out.push(
+        perfSum,
+        writSum,
         semTotal,
+        periodAverage(items, values),
         totalMax > 0 ? round2((semTotal / totalMax) * 100) : 0,
         semTotal > 0 ? rating.label : "",
       );
@@ -162,15 +179,17 @@ export async function GET(request: Request) {
 
   /* ---------------- ورقة ٢: ملخص توزيع الدرجات ---------------- */
   const distRows: (string | number)[][] = [
-    ["بند التوزيع", "الفترة", "المجموعة", "الدرجة العظمى"],
+    ["بند التوزيع", "المجموعة", "الفترة", "الدرجة العظمى"],
     ...items.map((item) => [
       item.label,
+      GROUP_LABEL[toGroup(item.group)],
       item.period === "p1" ? "الفترة الأولى" : "الفترة الثانية",
-      item.group === "year" ? "أعمال السنة" : "الاختبار النهائي",
       item.max,
     ]),
-    ["مجموع الفترة الأولى", "", "", periodGroupped[0]?.list.reduce((s, i) => s + i.max, 0) ?? 0],
-    ["مجموع الفترة الثانية", "", "", periodGroupped[1]?.list.reduce((s, i) => s + i.max, 0) ?? 0],
+    ["مجموع المهام الأدائية", "", "", groupGroupped.find((g) => g.group === "performance")?.list.reduce((s, i) => s + i.max, 0) ?? 0],
+    ["الهدف المعتمد للمهام الأدائية", "", "", 40],
+    ["مجموع التقويمات التحريرية", "", "", groupGroupped.find((g) => g.group === "written")?.list.reduce((s, i) => s + i.max, 0) ?? 0],
+    ["الهدف المعتمد للتقويمات التحريرية", "", "", 60],
     ["مجموع الفصل الدراسي", "", "", totalMax],
     ["درجة النجاح", "", "", passingScore],
     ["مجموع الفصلين (السنوي)", "", "", totalMax * 2],
@@ -184,6 +203,12 @@ export async function GET(request: Request) {
   const count = students.length;
   const avg = (list: number[]) => (count ? round2(list.reduce((a, b) => a + b, 0) / count) : 0);
   const gradedSecond = t2List.filter((t) => t > 0).length;
+
+  // متوسط مجموع الفترتين لكل فصل دراسي (لكل طالب ثم متوسط الصف)
+  const avgOf = (pick: (r: (typeof students)[number]) => number) =>
+    count ? round2(students.reduce((s, r) => s + pick(r), 0) / count) : 0;
+  const avgPeriodFirst = avgOf((r) => periodAverage(items, (r.v1 ?? {}) as GradeValues));
+  const avgPeriodSecond = avgOf((r) => periodAverage(items, (r.v2 ?? {}) as GradeValues));
   const yearList = students.map((r) =>
     yearTotal({ first: Number(r.t1 ?? 0), second: Number(r.t2 ?? 0) }),
   );
@@ -199,7 +224,10 @@ export async function GET(request: Request) {
     ["عدد الطلاب", count],
     ["متوسط الفصل الدراسي الأول", avg(t1List)],
     ["متوسط الفصل الدراسي الثاني", avg(t2List)],
-    ["متوسط مجموع الفصلين", avg(yearList)],
+    ["متوسط مجموع الفترتين — الفصل الأول", avgPeriodFirst],
+    ["متوسط مجموع الفترتين — الفصل الثاني", avgPeriodSecond],
+    ["متوسط مجموع الفصلين", avg(meanList)],
+    ["متوسط المجموع السنوي", avg(yearList)],
     ["المتوسط العام بين الفصلين", avg(meanList)],
     ["عدد المرصود لهم في الفصل الأول", t1List.filter((t) => t > 0).length],
     ["عدد المرصود لهم في الفصل الثاني", gradedSecond],

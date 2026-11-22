@@ -1,5 +1,6 @@
-import { PERIOD_LABEL, RATINGS, SEMESTER_LABEL } from "./constants";
-import type { GradeValues, ScoreItem, ScorePeriod, Semester } from "@/db/schema";
+import { GROUP_LABEL, GROUP_TARGET, PERIOD_LABEL, RATINGS } from "./constants";
+import { toGroup } from "./constants";
+import type { GradeValues, ScoreItem, ScorePeriod, ScoreGroup, Semester } from "@/db/schema";
 
 export type RatingKey = (typeof RATINGS)[number]["key"];
 
@@ -9,6 +10,10 @@ export type RatingInfo = {
   color: string;
   passed: boolean;
 };
+
+export function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
 
 /** حساب المجموع من قيم الخانات */
 export function computeTotal(items: ScoreItem[], values: GradeValues): number {
@@ -21,21 +26,17 @@ export function computeTotal(items: ScoreItem[], values: GradeValues): number {
   return round2(total);
 }
 
-export function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
 /** احتساب مجموع الدرجة العظمى */
 export function computeTotalMax(items: ScoreItem[]): number {
   return round2(items.reduce((sum, item) => sum + (Number(item.max) || 0), 0));
 }
 
-/** احتساب مجموع مجموعة (أعمال السنة / الاختبار النهائي) */
-export function computeGroupTotal(items: ScoreItem[], values: GradeValues, group: "year" | "final") {
+/** مجموع مجموعة التقييم (المهام الأدائية / التقويمات التحريرية) */
+export function computeGroupTotal(items: ScoreItem[], values: GradeValues, group: ScoreGroup) {
   let got = 0;
   let max = 0;
   for (const item of items) {
-    if (item.group !== group) continue;
+    if (toGroup(item.group) !== group) continue;
     max += Number(item.max) || 0;
     const raw = values?.[item.id];
     got += typeof raw === "number" && Number.isFinite(raw) ? raw : 0;
@@ -43,7 +44,7 @@ export function computeGroupTotal(items: ScoreItem[], values: GradeValues, group
   return { got: round2(got), max: round2(max) };
 }
 
-/** احتساب مجموع فترة (الفترة الأولى / الفترة الثانية) داخل الفصل الدراسي */
+/** مجموع فترة (الفترة الأولى / الثانية) */
 export function computePeriodTotal(items: ScoreItem[], values: GradeValues, period: ScorePeriod) {
   let got = 0;
   let max = 0;
@@ -56,9 +57,17 @@ export function computePeriodTotal(items: ScoreItem[], values: GradeValues, peri
   return { got: round2(got), max: round2(max) };
 }
 
-/** تحويل آمن لقيمة الفترة (بيانات قديمة قد لا تحتوي الحقل) */
+/** تحويل آمن لقيمة الفترة */
 export function toPeriod(value: string | null | undefined): ScorePeriod {
   return value === "p2" ? "p2" : "p1";
+}
+
+/** إرجاع الخانات مُرتَّبة حسب المجموعة (المهام الأدائية ثم التقويمات التحريرية) */
+export function itemsByGroup(items: ScoreItem[]): { group: ScoreGroup; items: ScoreItem[] }[] {
+  const groups: ScoreGroup[] = ["performance", "written"];
+  return groups
+    .map((group) => ({ group, items: items.filter((i) => toGroup(i.group) === group) }))
+    .filter((g) => g.items.length > 0);
 }
 
 /** إرجاع الخانات مُرتَّبة حسب الفترة */
@@ -66,7 +75,7 @@ export function itemsByPeriod(items: ScoreItem[]): { period: ScorePeriod; items:
   const periods: ScorePeriod[] = ["p1", "p2"];
   return periods
     .map((period) => ({ period, items: items.filter((i) => toPeriod(i.period) === period) }))
-    .filter((group) => group.items.length > 0);
+    .filter((g) => g.items.length > 0);
 }
 
 export function getRating(total: number, totalMax: number, passingScore: number): RatingInfo {
@@ -95,26 +104,6 @@ export function gradeColorClasses(color: string) {
   }
 }
 
-/** تحويل رقم إلى أحرف عربية (للتقارير) */
-export function numberToArabicWords(n: number): string {
-  const ones = [
-    "صفر",
-    "واحد",
-    "اثنان",
-    "ثلاثة",
-    "أربعة",
-    "خمسة",
-    "ستة",
-    "سبعة",
-    "ثمانية",
-    "تسعة",
-    "عشرة",
-  ];
-  const r = round2(n);
-  if (Number.isInteger(r) && r >= 0 && r <= 10) return ones[r];
-  return r.toLocaleString("ar-EG", { maximumFractionDigits: 2 });
-}
-
 /** تحويل رقم إلى أرقام هندية (٠١٢٣...) */
 export function toArabicDigits(value: number | string): string {
   const map = ["٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"];
@@ -129,45 +118,90 @@ export function hasAnyValue(values: GradeValues): boolean {
 /** إحصاءات مجموعة من الدرجات */
 export function statsFor(rows: { total: number }[], totalMax: number, passingScore: number) {
   const count = rows.length;
-  const graded = rows.filter((r) => r.total > 0);
   const passed = rows.filter((r) => r.total >= passingScore).length;
   const failed = count - passed;
   const avg = count ? round2(rows.reduce((s, r) => s + r.total, 0) / count) : 0;
   const highest = count ? round2(Math.max(...rows.map((r) => r.total))) : 0;
   const lowest = count ? round2(Math.min(...rows.map((r) => r.total))) : 0;
   const pct = totalMax > 0 ? round2((avg / totalMax) * 100) : 0;
-  return { count, graded: graded.length, passed, failed, avg, highest, lowest, pct };
+  return { count, passed, failed, avg, highest, lowest, pct };
 }
 
 /* ============================================================
- *  حسابات الفصلين الدراسيين (مجموع الفصلين والمتوسط)
+ *  متوسط الفترتين ومتوسط الفصلين
  * ========================================================== */
 
 export type SemesterScores = { first: number; second: number };
 
-/** مجموع الفصلين = مجموع الفصل الأول + مجموع الفصل الثاني */
+/** مجموع الفصلين = الفصل الأول + الفصل الثاني */
 export function yearTotal(scores: SemesterScores): number {
   return round2((scores.first ?? 0) + (scores.second ?? 0));
 }
 
-/** متوسط الفصلين */
+/**
+ * متوسط مجموع الفترتين داخل فصل دراسي واحد:
+ * (مجموع الفترة الأولى + مجموع الفترة الثانية) ÷ عدد الفترات المرصدة
+ * الفترات غير المرصدة لا تُحتسب حتى لا ينخفض المتوسط ظلماً.
+ */
+export function periodAverage(items: ScoreItem[], values: GradeValues): number {
+  const p1 = computePeriodTotal(items, values, "p1").got;
+  const p2 = computePeriodTotal(items, values, "p2").got;
+  const parts = [p1, p2].filter((v) => v > 0);
+  if (parts.length === 0) return 0;
+  return round2(parts.reduce((a, b) => a + b, 0) / parts.length);
+}
+
+/** الدرجة العظمى لمتوسط الفترتين */
+export function periodAverageMax(items: ScoreItem[]): number {
+  const p1 = items.filter((i) => toPeriod(i.period) === "p1").reduce((s, i) => s + (i.max || 0), 0);
+  const p2 = items.filter((i) => toPeriod(i.period) === "p2").reduce((s, i) => s + (i.max || 0), 0);
+  const parts = [p1, p2].filter((v) => v > 0);
+  if (parts.length === 0) return 0;
+  return round2(parts.reduce((a, b) => a + b, 0) / parts.length);
+}
+
+/** متوسط الفصلين الدراسيين */
 export function yearAverage(scores: SemesterScores): number {
   const parts = [scores.first, scores.second].filter((v) => typeof v === "number" && v > 0);
   if (parts.length === 0) return 0;
   return round2(parts.reduce((a, b) => a + b, 0) / parts.length);
 }
 
-/** الدرجة العظمى السنوية = عظمى الفصل × عدد الفصول المرصدة */
+/** الدرجة العظمى السنوية */
 export function yearMax(totalMax: number, semestersCount: number): number {
   return round2(totalMax * Math.max(1, Math.min(2, semestersCount)));
 }
 
 /** نص الفصل الدراسي */
 export function semesterText(semester: Semester): string {
-  return SEMESTER_LABEL[semester] ?? "الفصل الدراسي الأول";
+  return SEMESTER_LABEL_SAFE[semester] ?? "الفصل الدراسي الأول";
 }
+
+const SEMESTER_LABEL_SAFE: Record<string, string> = {
+  first: "الفصل الدراسي الأول",
+  second: "الفصل الدراسي الثاني",
+};
 
 /** نص الفترة */
 export function periodText(period: ScorePeriod): string {
   return PERIOD_LABEL[period] ?? "الفترة الأولى";
+}
+
+/** نص المجموعة */
+export function groupText(group: ScoreGroup): string {
+  return GROUP_LABEL[group] ?? "المهام الأدائية";
+}
+
+/** الهدف المعتمد للمجموعة */
+export function groupTarget(group: ScoreGroup): number {
+  return GROUP_TARGET[group] ?? 0;
+}
+
+/** تنسيق الخانات المخزّنة (تحويل القيم القديمة) */
+export function normalizeItems(items: ScoreItem[]): ScoreItem[] {
+  return items.map((item) => ({
+    ...item,
+    group: toGroup(item.group),
+    period: toPeriod(item.period),
+  }));
 }

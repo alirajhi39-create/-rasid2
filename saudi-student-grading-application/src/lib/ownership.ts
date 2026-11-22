@@ -4,6 +4,7 @@ import { db } from "@/db";
 /**
  * =====================================================================
  *  مساعدات التحقق من الملكية — تضمن عزل بيانات كل معلم عن غيره
+ *  المادة مملوكة لمعلم واحد عبر subjects.user_id حتى بعد فك ربطها بالفصل
  * =====================================================================
  */
 
@@ -15,18 +16,21 @@ export async function ownsClassroom(classroomId: number, userId: number): Promis
   return Boolean(result.rows?.[0]);
 }
 
+/**
+ * التحقق من ملكية المادة — يعتمد على subjects.user_id (لا على الفصل)
+ * حتى تبقى المادة مملوكة للمعلم بعد فك الربط.
+ */
 export async function ownsSubject(
   subjectId: number,
   userId: number,
 ): Promise<{ owned: boolean; classroomId: number | null }> {
   if (!Number.isFinite(subjectId) || subjectId <= 0) return { owned: false, classroomId: null };
-  const result = await db.execute<{ classroom_id: number }>(
-    sql`SELECT classroom_id FROM subjects WHERE id = ${subjectId} LIMIT 1`,
+  const result = await db.execute<{ classroom_id: number | null }>(
+    sql`SELECT classroom_id FROM subjects WHERE id = ${subjectId} AND user_id = ${userId} LIMIT 1`,
   );
-  const classroomId = result.rows?.[0]?.classroom_id;
-  if (!classroomId) return { owned: false, classroomId: null };
-  const owned = await ownsClassroom(classroomId, userId);
-  return { owned, classroomId: owned ? classroomId : null };
+  const row = result.rows?.[0];
+  if (!row) return { owned: false, classroomId: null };
+  return { owned: true, classroomId: row.classroom_id ?? null };
 }
 
 export async function ownsStudent(studentId: number, userId: number): Promise<boolean> {
@@ -37,15 +41,4 @@ export async function ownsStudent(studentId: number, userId: number): Promise<bo
         WHERE st.id = ${studentId} AND c.user_id = ${userId} LIMIT 1`,
   );
   return Boolean(result.rows?.[0]);
-}
-
-/** بيانات المالك الحالي للمادة (للطباعة والتصدير) */
-export async function subjectOwnerId(
-  subjectId: number,
-): Promise<number | null> {
-  const result = await db.execute<{ user_id: number }>(
-    sql`SELECT c.user_id FROM subjects s JOIN classrooms c ON c.id = s.classroom_id
-        WHERE s.id = ${subjectId} LIMIT 1`,
-  );
-  return result.rows?.[0]?.user_id ?? null;
 }

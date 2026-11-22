@@ -110,13 +110,23 @@ export function Textarea({
 }
 
 /* --------------------------------- Badge --------------------------------- */
+export type BadgeTone =
+  | "slate"
+  | "brand"
+  | "emerald"
+  | "rose"
+  | "amber"
+  | "sky"
+  | "violet"
+  | "orange";
+
 export function Badge({
   children,
   tone = "slate",
   className = "",
 }: {
   children: ReactNode;
-  tone?: "slate" | "brand" | "emerald" | "rose" | "amber" | "sky" | "violet" | "orange";
+  tone?: BadgeTone | (string & {});
   className?: string;
 }) {
   const tones: Record<string, string> = {

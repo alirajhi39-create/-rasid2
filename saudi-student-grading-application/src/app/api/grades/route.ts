@@ -60,16 +60,42 @@ export async function GET(request: Request) {
     : await defaultSemester();
 
   const subjectResult = await db.execute<
-    SubjectMetaRow & { classroom_id: number; grade: string; section: string; stage: string }
+    SubjectMetaRow & {
+      classroom_id: number | null;
+      grade: string | null;
+      section: string | null;
+      stage: string | null;
+    }
   >(sql`
     SELECT s.id, s.name, s.items, s.total_max, s.passing_score, s.classroom_id,
            c.grade, c.section, c.stage
-    FROM subjects s JOIN classrooms c ON c.id = s.classroom_id
+    FROM subjects s LEFT JOIN classrooms c ON c.id = s.classroom_id
     WHERE s.id = ${subjectId} LIMIT 1
   `);
   const subject = subjectResult.rows?.[0];
   if (!subject) {
     return NextResponse.json({ ok: false, error: "المادة غير موجودة" }, { status: 404 });
+  }
+
+  // مادة غير مرتبطة بفصل → لا يوجد طلاب للرصد حتى يربطها المعلم
+  if (!subject.classroom_id) {
+    return NextResponse.json({
+      ok: true,
+      semester,
+      unlinked: true,
+      subject: {
+        id: subject.id,
+        name: subject.name,
+        items: subject.items ?? [],
+        totalMax: Number(subject.total_max),
+        passingScore: Number(subject.passing_score),
+        classroomId: null,
+        grade: null,
+        section: null,
+        stage: null,
+      },
+      rows: [],
+    });
   }
 
   const studentsResult = await db.execute<StudentWithGrades>(sql`
@@ -84,6 +110,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     ok: true,
     semester,
+    unlinked: false,
     subject: {
       id: subject.id,
       name: subject.name,

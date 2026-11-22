@@ -25,52 +25,87 @@ export function MinistryLogo({ size = 76 }: { size?: number }) {
   );
 }
 
-/** ترويسة وزارة التعليم الرسمية */
+/**
+ * =====================================================================
+ *  الترويسة الرسمية للتقارير
+ *
+ *  التخطيط:
+ *   ┌──────────────────────────────────────────────────────────────┐
+ *   │ اسم المدرسة (يمين)     [الشعار] + المملكة + الوزارة (وسط)    │
+ *   │                                                              │
+ *   │                    العام الدراسي ١٤٤٨هـ                      │
+ *   │                          العنوان                              │
+ *   └──────────────────────────────────────────────────────────────┘
+ *
+ *  • اسم المدرسة في اليمين
+ *  • سطر إدارة التعليم يظهر فقط إذا أُدخل في الإعدادات (اختياري)
+ *  • «العام الدراسي» والعام على يسار النص
+ *  • لا يوجد أي مربّع «الرقم الآلي / المدرسة» — حُذف من الترويسة
+ * =====================================================================
+ */
 export function OfficialHeader({
   settings,
   title,
   meta,
-  subtitle,
 }: {
   settings: PrintSettings;
   title: string;
   meta?: ReactNode;
-  subtitle?: ReactNode;
 }) {
+  const year = (settings.academicYear ?? "").trim() || "—";
+  const administration = (settings.administration ?? "").trim();
+  const schoolName = (settings.schoolName ?? "").trim();
+
   return (
     <header className="avoid-break mb-4 border-b-2 border-double border-slate-800 pb-3">
-      <div className="flex items-center justify-between gap-3">
-        {/* الشعار الرسمي */}
-        <div className="flex w-24 shrink-0 flex-col items-center gap-1">
-          <MinistryLogo size={70} />
+      {/* صف الترويسة — شبكة ثلاثية متساوية لضمان محاذاة كاملة:
+          العمود الأيمن = الإدارة والمدرسة | الوسط = الشعار والوزارة | الأيسر = متوازن */}
+      <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-x-3">
+        {/* الأيمن: إدارة التعليم (عريض) ثم اسم المدرسة */}
+        <div className="min-w-0 pt-0.5 text-right">
+          {administration && (
+            <p className="text-[11pt] leading-5 font-extrabold text-slate-900">{administration}</p>
+          )}
+          {schoolName && (
+            <p
+              className={`leading-5 font-extrabold text-slate-900 ${
+                administration ? "text-[10pt]" : "text-[11pt]"
+              }`}
+            >
+              {schoolName}
+            </p>
+          )}
         </div>
 
-        {/* البيانات الرسمية */}
-        <div className="flex-1 text-center">
-          <p className="text-[11pt] font-extrabold text-slate-900">المملكة العربية السعودية</p>
-          <p className="text-[12pt] font-extrabold text-emerald-800">{settings.ministryOffice}</p>
-          <p className="text-[10pt] font-bold text-slate-700">{settings.administration}</p>
-          <p className="text-[10pt] font-bold text-slate-700">{settings.schoolName}</p>
-          <div className="mt-1.5 inline-flex flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded border border-slate-300 bg-slate-50 px-3 py-1 text-[9pt] font-semibold text-slate-700">
-            <span>العام الدراسي: {settings.academicYear}</span>
-            {subtitle ?? <span className="text-slate-300">|</span>}
-          </div>
-          <h1 className="mt-2 text-[14pt] font-extrabold text-slate-900 underline decoration-2 underline-offset-4">
-            {title}
-          </h1>
-          {meta && <div className="mt-1.5 text-[10pt] font-bold text-slate-700">{meta}</div>}
+        {/* الوسط: الشعار + المملكة العربية السعودية + وزارة التعليم */}
+        <div className="flex shrink-0 flex-col items-center gap-0.5">
+          <MinistryLogo size={56} />
+          <p className="mt-0.5 text-[10pt] leading-4 font-extrabold text-slate-900">
+            المملكة العربية السعودية
+          </p>
+          <p className="text-[10.5pt] leading-4 font-extrabold text-emerald-800">
+            {settings.ministryOffice}
+          </p>
         </div>
 
-        {/* مربع الترميز */}
-        <div className="w-24 shrink-0">
-          <div className="rounded border border-slate-400 p-1 text-center text-[7pt] font-bold text-slate-600">
-            الرقم الآلي
-          </div>
-          <div className="mt-1 grid h-14 place-items-center rounded border border-slate-400 text-[7pt] text-slate-400">
-            المدرسة
-          </div>
-        </div>
+        {/* الأيسر: عمود متوازن (فارغ) ليظل الشعار في منتصف الصفحة تماماً */}
+        <div className="min-w-0" aria-hidden />
       </div>
+
+      {/* العام الدراسي — العام على يسار النص */}
+      <div className="mt-2.5 flex justify-center">
+        <span className="rounded border border-slate-400 bg-slate-50 px-4 py-1 text-[10.5pt] font-bold text-slate-800">
+          العام الدراسي {year}
+        </span>
+      </div>
+
+      {/* العنوان */}
+      <h1 className="mt-2 text-center text-[14pt] font-extrabold text-slate-900 underline decoration-2 underline-offset-4">
+        {title}
+      </h1>
+      {meta && (
+        <div className="mt-1.5 text-center text-[10pt] font-bold text-slate-700">{meta}</div>
+      )}
     </header>
   );
 }

@@ -23,7 +23,8 @@ export type ScoreItemKind =
   | "practical"
   | "custom";
 
-export type ScoreGroup = "year" | "final";
+/** مجموعة التقييم: المهام الأدائية (٤٠) أو التقويمات التحريرية (٦٠) */
+export type ScoreGroup = "performance" | "written";
 
 /** فترة التقييم داخل الفصل الدراسي (فترتان لكل فصل) */
 export type ScorePeriod = "p1" | "p2";
@@ -124,14 +125,20 @@ export const students = pgTable(
  *  كل مادة مرتبطة بفصل دراسي واحد (classroom_id) ولا تظهر لغيره
  * ========================================================== */
 
+/**
+ * المادة: يمكن ربطها بفصل دراسي واحد أو تركها غير مرتبطة (classroomId = null).
+ * الملكية محفوظة في userId حتى تبقى المادة تحت حساب المعلم بعد فك الربط.
+ */
 export const subjects = pgTable(
   "subjects",
   {
     id: serial("id").primaryKey(),
     name: text("name").notNull(),
-    classroomId: integer("classroom_id")
+    classroomId: integer("classroom_id").references(() => classrooms.id, { onDelete: "cascade" }),
+    userId: integer("user_id")
       .notNull()
-      .references(() => classrooms.id, { onDelete: "cascade" }),
+      .default(1)
+      .references(() => users.id, { onDelete: "cascade" }),
     items: jsonb("items").$type<ScoreItem[]>().notNull().default([]),
     totalMax: numeric("total_max", { precision: 6, scale: 2 }).notNull().default("100"),
     passingScore: numeric("passing_score", { precision: 6, scale: 2 }).notNull().default("50"),

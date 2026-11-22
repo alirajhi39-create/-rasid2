@@ -72,11 +72,18 @@ export async function PUT(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as Record<string, string | undefined>;
     const updates: string[] = [];
+
     for (const field of FIELDS) {
       const value = body[CAMEL[field]];
-      if (typeof value === "string" && value.trim() !== "") {
-        updates.push(`${field} = '${value.replace(/'/g, "''").trim()}'`);
+      if (typeof value !== "string") continue;
+      const clean = value.trim();
+
+      if (clean === "") {
+        // الإدارة يمكن إفراغها لإخفائها من الترويسة
+        if (field === "administration") updates.push(`${field} = ''`);
+        continue;
       }
+      updates.push(`${field} = '${clean.replace(/'/g, "''")}'`);
     }
     if (updates.length === 0) {
       return NextResponse.json({ ok: false, error: "لا توجد بيانات للتحديث" }, { status: 400 });

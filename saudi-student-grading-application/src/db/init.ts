@@ -114,12 +114,44 @@ export async function initDatabase() {
   await runRaw(
     `CREATE UNIQUE INDEX IF NOT EXISTS subjects_classroom_name_unique ON subjects (classroom_id, name)`,
   );
-  // ترقية الخانات المخزّنة لإضافة الفترة (فترتان لكل فصل دراسي)
+
+  // ---- دعم فك ربط المادة عن الفصل (classroom_id يقبل NULL) ----
+  // الملكية تُخزَّن في subjects.user_id حتى لا تُربط المادة تلقائياً بعد فك الربط
+  await runRaw(`ALTER TABLE subjects ADD COLUMN IF NOT EXISTS user_id integer`);
+  await runRaw(`
+    UPDATE subjects s SET user_id = c.user_id
+    FROM classrooms c WHERE c.id = s.classroom_id AND s.user_id IS NULL`);
+  await runRaw(`
+    UPDATE subjects SET user_id = (SELECT MIN(id) FROM users)
+    WHERE user_id IS NULL OR user_id NOT IN (SELECT id FROM users)`);
+  await runRaw(`ALTER TABLE subjects ALTER COLUMN user_id SET NOT NULL`);
+  await runRaw(`ALTER TABLE subjects ALTER COLUMN user_id SET DEFAULT 1`);
+  await runRaw(`ALTER TABLE subjects DROP CONSTRAINT IF EXISTS subjects_user_id_fkey`);
+  await runRaw(
+    `ALTER TABLE subjects ADD CONSTRAINT subjects_user_id_fkey
+     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE`,
+  );
+  await runRaw(`ALTER TABLE subjects ALTER COLUMN classroom_id DROP NOT NULL`);
+  // منع تكرار اسم المادة غير المرتبطة لنفس المعلم
+  await runRaw(`DROP INDEX IF EXISTS subjects_unlinked_user_name_unique`);
+  await runRaw(
+    `CREATE UNIQUE INDEX IF NOT EXISTS subjects_unlinked_user_name_unique
+     ON subjects (user_id, name) WHERE classroom_id IS NULL`,
+  );
+  // ترقية الخانات المخزّنة: إضافة الفترة (فترتان لكل فصل) + المجموعة الجديدة
+  // المجموعات: performance = المهام الأدائية (٤٠) | written = التقويمات التحريرية (٦٠)
   await runRaw(`
     UPDATE subjects SET items = (
       SELECT jsonb_agg(
-        CASE WHEN elem ? 'period' THEN elem ELSE elem || '{"period":"p1"}'::jsonb END
-        ORDER BY ord
+        CASE
+          WHEN (elem->>'group') IN ('final','written') AND (elem ? 'period')
+            THEN elem || '{"group":"written"}'::jsonb
+          WHEN (elem->>'group') IN ('final','written')
+            THEN (elem || '{"group":"written"}'::jsonb) || '{"period":"p1"}'::jsonb
+          WHEN elem ? 'period'
+            THEN elem || '{"group":"performance"}'::jsonb
+          ELSE (elem || '{"group":"performance"}'::jsonb) || '{"period":"p1"}'::jsonb
+        END ORDER BY ord
       )
       FROM jsonb_array_elements(items) WITH ORDINALITY AS t(elem, ord)
     ) WHERE jsonb_typeof(items) = 'array' AND jsonb_array_length(items) > 0`);
@@ -148,11 +180,21 @@ export async function initDatabase() {
   );
   steps.push("grades");
 
-  // توحيد قيم الفصل الدراسي إلى first / second فقط
+  // توحيد قيم الفصل الدراسي إلى first / second فقط (بأمان وبدون تعارض)
+  // لا نلمس الصفوف الصحيحة أصلاً، ونحوّل فقط القيم غير القياسية
   await runRaw(`
-    UPDATE grades SET semester = CASE
-      WHEN semester ILIKE '%ثان%' OR semester IN ('2', 's2') THEN 'second'
-      ELSE 'first' END`);
+    UPDATE grades g SET semester = CASE
+      WHEN g.semester ILIKE '%ثان%' OR g.semester IN ('2', 's2') THEN 'second'
+      ELSE 'first' END
+    WHERE g.semester NOT IN ('first', 'second')
+      AND NOT EXISTS (
+        SELECT 1 FROM grades h
+        WHERE h.student_id = g.student_id AND h.subject_id = g.subject_id AND h.id <> g.id
+          AND h.semester = (CASE WHEN g.semester ILIKE '%ثان%' OR g.semester IN ('2', 's2')
+                                 THEN 'second' ELSE 'first' END)
+      )`);
+  // حذف أي صفوف متبقية بقيم غير قياسية (مكررة) لضمان سلامة الفهرس الفريد
+  await runRaw(`DELETE FROM grades WHERE semester NOT IN ('first', 'second')`);
 
   /* ---------------- بيانات البداية (Seeding) ---------------- */
 

@@ -17,19 +17,24 @@ import {
 } from "@/components/ui";
 import {
   GRADE_LABEL_PREFIX,
+  GROUPS,
+  GROUP_LABEL,
+  GROUP_TARGET,
   KIND_LABEL,
   PERIOD_SHORT,
   SEMESTERS,
   SEMESTER_LABEL,
   SEMESTER_SHORT,
+  toGroup,
 } from "@/lib/constants";
 import {
-  computePeriodTotal,
+  computeGroupTotal,
   computeTotal,
   gradeColorClasses,
+  normalizeItems,
+  periodAverage,
   round2,
   statsFor,
-  toPeriod,
   yearAverage,
   yearTotal,
 } from "@/lib/grades";
@@ -39,10 +44,10 @@ type Classroom = { id: number; grade: string; section: string; stage: string };
 type Subject = {
   id: number;
   name: string;
+  classroom_id: number | null;
   total_max: string;
   passing_score: string;
   students_graded: number;
-  classroom_id: number;
 };
 
 type Row = {
@@ -60,6 +65,8 @@ type SummaryRow = {
   classNumber: number | null;
   first: number;
   second: number;
+  periodAvgFirst: number;
+  periodAvgSecond: number;
   yearTotal: number;
   yearAvg: number;
 };
@@ -70,8 +77,10 @@ type SummaryStats = {
   gradedSecond: number;
   avgFirst: number;
   avgSecond: number;
-  avgYear: number;
+  avgPeriodFirst: number;
+  avgPeriodSecond: number;
   avgMean: number;
+  avgYear: number;
   yearMax: number;
   passedYear: number;
   semestersUsed: number;
@@ -84,7 +93,7 @@ export default function GradesClient() {
   const initialSubject = Number(searchParams.get("subjectId")) || null;
 
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
-  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [allSubjects, setAllSubjects] = useState<Subject[]>([]);
   const [classroomId, setClassroomId] = useState<number | null>(null);
   const [subjectId, setSubjectId] = useState<number | null>(initialSubject);
   const [semester, setSemester] = useState<Semester>("first");
@@ -96,6 +105,7 @@ export default function GradesClient() {
   const [summary, setSummary] = useState<{ rows: SummaryRow[]; stats: SummaryStats } | null>(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [isUnlinked, setIsUnlinked] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
@@ -109,41 +119,47 @@ export default function GradesClient() {
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3500);
   }, []);
 
-  /* ---------------------------- تحميل الفصول ---------------------------- */
-  useEffect(() => {
-    (async () => {
-      const res = await apiFetch<{ classrooms: Classroom[] }>("/api/classrooms");
-      if (res.ok && res.data) setClassrooms(res.data.classrooms ?? []);
-      else if (res.error) pushToast("error", res.error);
-    })();
+  /* ------------------------- تحميل الفصول والمواد ------------------------- */
+  const loadClassrooms = useCallback(async () => {
+    const res = await apiFetch<{ classrooms: Classroom[] }>("/api/classrooms");
+    if (res.ok && res.data) setClassrooms(res.data.classrooms ?? []);
+    else if (res.error) pushToast("error", res.error);
   }, [pushToast]);
 
-  /* ------------- استنتاج الفصل من المادة المحددة في الرابط ------------- */
-  useEffect(() => {
-    if (!initialSubject) return;
-    (async () => {
-      const res = await apiFetch<{ subject: { classroomId: number } }>(
-        `/api/grades?subjectId=${initialSubject}`,
-      );
-      if (res.ok && res.data?.subject) setClassroomId(res.data.subject.classroomId);
-    })();
-  }, [initialSubject]);
+  const loadAllSubjects = useCallback(async () => {
+    const res = await apiFetch<{ subjects: Subject[] }>("/api/subjects");
+    if (res.ok && res.data) setAllSubjects(res.data.subjects ?? []);
+  }, []);
 
-  /* ---------------------------- مواد الفصل ---------------------------- */
   useEffect(() => {
-    if (!classroomId) {
-      setSubjects([]);
-      return;
-    }
-    (async () => {
-      const res = await apiFetch<{ subjects: Subject[] }>(`/api/subjects?classroomId=${classroomId}`);
-      if (res.ok && res.data) {
-        const list = res.data.subjects ?? [];
-        setSubjects(list);
-        setSubjectId((prev) => (prev && list.some((s) => s.id === prev) ? prev : list[0]?.id ?? null));
-      }
-    })();
-  }, [classroomId]);
+    void loadClassrooms();
+    void loadAllSubjects();
+  }, [loadClassrooms, loadAllSubjects]);
+
+  /** مواد الفصل المحدد فقط (مرتبطة به) */
+  const classSubjects = useMemo(
+    () => (classroomId ? allSubjects.filter((s) => s.classroom_id === classroomId) : []),
+    [allSubjects, classroomId],
+  );
+  const unlinkedSubjects = useMemo(
+    () => allSubjects.filter((s) => !s.classroom_id),
+    [allSubjects],
+  );
+
+  // عند تغيير الفصل: اختر أول مادة مرتبطة به (لا مادة غير مرتبطة)
+  useEffect(() => {
+    if (!classroomId) return;
+    setSubjectId((prev) =>
+      prev && classSubjects.some((s) => s.id === prev) ? prev : classSubjects[0]?.id ?? null,
+    );
+  }, [classroomId, classSubjects]);
+
+  // عند الفتح من رابط يحوي subjectId: اختر فصل تلك المادة
+  useEffect(() => {
+    if (!initialSubject || classrooms.length === 0) return;
+    const found = allSubjects.find((s) => s.id === initialSubject);
+    if (found?.classroom_id) setClassroomId(found.classroom_id);
+  }, [initialSubject, classrooms.length, allSubjects]);
 
   /* ------------------------- تحميل صفوف الرصد ------------------------- */
   const loadRows = useCallback(async () => {
@@ -156,27 +172,29 @@ export default function GradesClient() {
     setLoading(true);
     const res = await apiFetch<{
       semester: Semester;
+      unlinked: boolean;
       subject: {
         id: number;
         name: string;
         items: ScoreItem[];
         totalMax: number;
         passingScore: number;
-        classroomId: number;
-        grade: string;
-        section: string;
+        classroomId: number | null;
+        grade: string | null;
+        section: string | null;
       };
       rows: Row[];
     }>(`/api/grades?subjectId=${subjectId}&semester=${semester}`);
     if (res.ok && res.data) {
-      setItems((res.data.subject.items ?? []).map((i) => ({ ...i, period: toPeriod(i.period) })));
+      setItems(normalizeItems(res.data.subject.items ?? []));
       setTotalMax(res.data.subject.totalMax);
       setPassingScore(res.data.subject.passingScore);
+      setIsUnlinked(Boolean(res.data.unlinked));
       const loaded = res.data.rows ?? [];
       rowsRef.current = loaded;
       setRows(loaded);
-      setClassroomId(res.data.subject.classroomId);
       if (res.data.semester) setSemester(res.data.semester);
+      // لا نلمس classroomId — منعاً لأي ربط تلقائي
     } else if (res.error) {
       pushToast("error", res.error);
       setRows([]);
@@ -188,7 +206,7 @@ export default function GradesClient() {
     void loadRows();
   }, [loadRows]);
 
-  /* ------------------- ملخص الفصلين (المجموع والمتوسط) ------------------- */
+  /* ------------------- ملخص الفصلين والمتوسطات ------------------- */
   const loadSummary = useCallback(async () => {
     if (!subjectId) {
       setSummary(null);
@@ -259,25 +277,18 @@ export default function GradesClient() {
         target.select();
       }
     };
-
     switch (event.key) {
       case "Enter":
-        go(row + 1, col);
-        break;
       case "ArrowDown":
-        event.preventDefault();
         go(row + 1, col);
         break;
       case "ArrowUp":
-        event.preventDefault();
         go(row - 1, col);
         break;
       case "ArrowLeft":
-        event.preventDefault();
         go(row, col + 1);
         break;
       case "ArrowRight":
-        event.preventDefault();
         go(row, col - 1);
         break;
       default:
@@ -285,7 +296,7 @@ export default function GradesClient() {
     }
   }
 
-  /* ---------------------------- البحث والتصفية ---------------------------- */
+  /* ---------------------------- بحث وتصفية ---------------------------- */
   const visibleRows = useMemo(() => {
     const q = search.trim();
     if (!q) return rows;
@@ -297,14 +308,15 @@ export default function GradesClient() {
     );
   }, [rows, search]);
 
-  const periodGroups = useMemo(() => {
-    const p1 = items.filter((i) => toPeriod(i.period) === "p1");
-    const p2 = items.filter((i) => toPeriod(i.period) === "p2");
-    return [
-      { period: "p1" as const, items: p1, max: p1.reduce((s, i) => s + i.max, 0) },
-      { period: "p2" as const, items: p2, max: p2.reduce((s, i) => s + i.max, 0) },
-    ].filter((g) => g.items.length > 0);
-  }, [items]);
+  /** الأعمدة مجمّعة حسب: المهام الأدائية ثم التقويمات التحريرية */
+  const groupColumns = useMemo(
+    () =>
+      GROUPS.map((g) => {
+        const list = items.filter((i) => toGroup(i.group) === g.value);
+        return { group: g.value, items: list, max: list.reduce((s, i) => s + i.max, 0) };
+      }).filter((g) => g.items.length > 0),
+    [items],
+  );
 
   const stats = useMemo(
     () => statsFor(visibleRows.map((r) => ({ total: r.total })), totalMax, passingScore),
@@ -328,9 +340,48 @@ export default function GradesClient() {
     [rows, items],
   );
 
-  const currentSubject = subjects.find((s) => s.id === subjectId);
+  const currentSubject = allSubjects.find((s) => s.id === subjectId);
   const currentClassroom = classrooms.find((c) => c.id === classroomId);
   const otherSemester: Semester = semester === "first" ? "second" : "first";
+
+  /* ---------------------- ربط المادة بفصل (يدوي فقط) ---------------------- */
+  const linkSubject = useCallback(
+    async (targetClassroomId: number) => {
+      if (!subjectId) return;
+      const res = await apiFetch(`/api/subjects/${subjectId}`, {
+        method: "PUT",
+        body: JSON.stringify({ classroomId: targetClassroomId }),
+      });
+      if (res.ok) {
+        pushToast("success", "تم ربط المادة بالفصل");
+        setClassroomId(targetClassroomId);
+        setIsUnlinked(false);
+        await loadAllSubjects();
+        await loadRows();
+      } else pushToast("error", res.error ?? "تعذر الربط");
+    },
+    [subjectId, pushToast, loadAllSubjects, loadRows],
+  );
+
+  const unlinkSubject = useCallback(async () => {
+    if (!subjectId) return;
+    if (
+      !confirm(
+        "فك ربط المادة عن الفصل؟\nستبقى المادة ودرجاتها محفوظة باسمك، ولن تُربط تلقائياً بأي فصل.",
+      )
+    )
+      return;
+    const res = await apiFetch(`/api/subjects/${subjectId}`, {
+      method: "PUT",
+      body: JSON.stringify({ classroomId: null }),
+    });
+    if (res.ok) {
+      pushToast("success", "تم فك ربط المادة — لن تُربط تلقائياً");
+      setIsUnlinked(true);
+      setRows([]);
+      await loadAllSubjects();
+    } else pushToast("error", res.error ?? "تعذر فك الربط");
+  }, [subjectId, pushToast, loadAllSubjects]);
 
   const saveBadge = {
     idle: { text: "جاهز", cls: "bg-slate-100 text-slate-600", dot: "bg-slate-400" },
@@ -340,7 +391,7 @@ export default function GradesClient() {
   }[saveState.status];
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-4">
+    <div className="mx-auto max-w-[1700px] space-y-4">
       {/* الترويسة وأدوات التحكم */}
       <div className="animate-fade-up rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm backdrop-blur sm:p-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -359,7 +410,9 @@ export default function GradesClient() {
             </span>
             <Button
               variant="outline"
-              onClick={() => window.open(`/print/class?subjectId=${subjectId}&semester=${semester}`, "_blank")}
+              onClick={() =>
+                window.open(`/print/class?subjectId=${subjectId}&semester=${semester}`, "_blank")
+              }
               disabled={!subjectId}
             >
               🖨️ طباعة
@@ -381,7 +434,6 @@ export default function GradesClient() {
             value={String(classroomId ?? "")}
             onChange={(e) => {
               setClassroomId(e.target.value ? Number(e.target.value) : null);
-              setSubjectId(null);
             }}
           >
             <option value="">— اختر الفصل —</option>
@@ -394,20 +446,18 @@ export default function GradesClient() {
           <Select
             value={String(subjectId ?? "")}
             onChange={(e) => setSubjectId(e.target.value ? Number(e.target.value) : null)}
-            disabled={!classroomId}
+            disabled={!classroomId || classSubjects.length === 0}
           >
-            <option value="">— اختر المادة —</option>
-            {subjects.map((s) => (
+            <option value="">
+              {classSubjects.length === 0 ? "لا توجد مواد لهذا الفصل" : "— اختر المادة —"}
+            </option>
+            {classSubjects.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name} (من {Number(s.total_max)})
               </option>
             ))}
           </Select>
-          <Select
-            value={semester}
-            onChange={(e) => setSemester(e.target.value as Semester)}
-            disabled={!subjectId}
-          >
+          <Select value={semester} onChange={(e) => setSemester(e.target.value as Semester)} disabled={!subjectId}>
             {SEMESTERS.map((s) => (
               <option key={s.value} value={s.value}>
                 {s.label}
@@ -423,54 +473,83 @@ export default function GradesClient() {
 
         {subjectId && (
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
-            <Badge tone="brand">
-              {GRADE_LABEL_PREFIX} {currentClassroom?.grade} — {currentClassroom?.section}
-            </Badge>
+            {isUnlinked ? (
+              <Badge tone="amber">🔓 غير مرتبطة بفصل</Badge>
+            ) : (
+              <Badge tone="brand">
+                {GRADE_LABEL_PREFIX} {currentClassroom?.grade} — {currentClassroom?.section}
+              </Badge>
+            )}
             <Badge tone="violet">{currentSubject?.name}</Badge>
             <Badge tone="sky">{SEMESTER_SHORT[semester]}</Badge>
-            {periodGroups.map((g) => (
-              <Badge key={g.period} tone={g.period === "p1" ? "sky" : "violet"}>
-                {PERIOD_SHORT[g.period]}: {g.max}
+            {groupColumns.map((g) => (
+              <Badge key={g.group} tone={g.group === "performance" ? "sky" : "violet"}>
+                {GROUP_LABEL[g.group]}: {g.max}
               </Badge>
             ))}
             <Badge tone="emerald">النجاح {passingScore}</Badge>
+            {!isUnlinked && (
+              <button
+                type="button"
+                onClick={() => void unlinkSubject()}
+                className="ms-auto rounded-lg bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-800 transition hover:bg-amber-200"
+                title="فك ربط المادة عن الفصل — تبقى محفوظة باسمك"
+              >
+                🔓 فك الربط عن الفصل
+              </button>
+            )}
           </div>
         )}
       </div>
 
-      {/* ملخص الفصلين */}
-      {subjectId && summary?.stats && (
+      {/* ملخص الفصلين والمتوسطات */}
+      {subjectId && !isUnlinked && summary?.stats && (
         <div className="animate-fade-up rounded-2xl border border-slate-200/80 bg-gradient-to-l from-slate-900 to-slate-800 p-4 text-white shadow-sm sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-bold text-slate-300">
-              الملخص السنوي — مجموع الفصلين والمتوسط ({currentSubject?.name})
+              الملخص السنوي — مجموع الفصلين والمتوسطات ({currentSubject?.name})
             </p>
             <span className="text-[10px] text-slate-400">
-              {summary.stats.gradedFirst} مرصود في الفصل الأول · {summary.stats.gradedSecond} في الفصل الثاني
+              {summary.stats.gradedFirst} مرصود في الفصل الأول · {summary.stats.gradedSecond} في الفصل
+              الثاني
             </span>
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
             {[
-              { label: `متوسط ${SEMESTER_SHORT.first}`, value: summary.stats.avgFirst, tone: "bg-white/15" },
-              { label: `متوسط ${SEMESTER_SHORT.second}`, value: summary.stats.avgSecond, tone: "bg-white/15" },
-              { label: "مجموع الفصلين (المتوسط)", value: summary.stats.avgMean, tone: "bg-white" },
+              { label: `متوسط ${SEMESTER_SHORT.first}`, value: summary.stats.avgFirst, light: false, tone: "bg-white/15" },
+              { label: `متوسط ${SEMESTER_SHORT.second}`, value: summary.stats.avgSecond, light: false, tone: "bg-white/15" },
+              {
+                label: `متوسط مجموع الفترتين (${SEMESTER_SHORT.first})`,
+                value: summary.stats.avgPeriodFirst,
+                light: false,
+                tone: "bg-white/15",
+              },
+              {
+                label: `متوسط مجموع الفترتين (${SEMESTER_SHORT.second})`,
+                value: summary.stats.avgPeriodSecond,
+                light: false,
+                tone: "bg-white/15",
+              },
+              {
+                label: "متوسط مجموع الفصلين",
+                value: summary.stats.avgMean,
+                light: true,
+                tone: "bg-white",
+              },
               {
                 label: "المجموع السنوي",
                 value: `${summary.stats.avgYear} / ${summary.stats.yearMax}`,
+                light: false,
                 tone: "bg-emerald-400 text-emerald-950",
               },
             ].map((card) => (
               <div key={card.label} className={`rounded-xl px-3 py-2.5 text-center ${card.tone}`}>
-                <p
-                  className={`text-xl font-extrabold tabular-nums ${
-                    card.tone === "bg-white" ? "text-brand-800" : ""
-                  }`}
-                >
+                <p className={`text-xl font-extrabold tabular-nums ${card.light ? "text-brand-800" : ""}`}>
                   {card.value}
                 </p>
                 <p
                   className={`mt-0.5 text-[10px] font-semibold ${
-                    card.tone === "bg-white" ? "text-brand-600" : "text-slate-300"
+                    card.light ? "text-brand-600" : "text-slate-300"
                   }`}
                 >
                   {card.label}
@@ -509,6 +588,39 @@ export default function GradesClient() {
         </div>
       )}
 
+      {/* مادة غير مرتبطة */}
+      {subjectId && isUnlinked && (
+        <div className="animate-fade-up flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <div className="text-xs leading-6 text-amber-900">
+            <p className="font-extrabold">🔓 هذه المادة غير مرتبطة بأي فصل دراسي</p>
+            <p>لا يمكن رصد الدرجات حتى تربطها بفصل. تبقى المادة محفوظة باسمك ولا تُربط تلقائياً.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select
+              value=""
+              onChange={(e) => {
+                const target = Number(e.target.value);
+                if (target) void linkSubject(target);
+              }}
+              className="w-44 text-xs"
+            >
+              <option value="">🔗 ربط بفصل...</option>
+              {classrooms.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {GRADE_LABEL_PREFIX} {c.grade} — {c.section}
+                </option>
+              ))}
+            </Select>
+            <Link
+              href="/dashboard/subjects"
+              className="rounded-xl border border-amber-400 bg-white px-3 py-2 text-xs font-bold text-amber-800"
+            >
+              إدارة المواد
+            </Link>
+          </div>
+        </div>
+      )}
+
       {/* جدول الرصد */}
       {!classroomId ? (
         <Card>
@@ -518,12 +630,12 @@ export default function GradesClient() {
             description="حدد الفصل الدراسي ثم المادة لبدء رصد الدرجات."
           />
         </Card>
-      ) : !subjectId ? (
+      ) : classSubjects.length === 0 ? (
         <Card>
           <EmptyState
             icon="📚"
-            title="لا توجد مواد في هذا الفصل"
-            description="أضف مادة دراسية مع توزيع الدرجات — ستكون مرتبطة بهذا الفصل فقط."
+            title="لا توجد مواد مرتبطة بهذا الفصل"
+            description="أضف مادة وحدّد أعمدة المهام الأدائية (٤٠) والتقويمات التحريرية (٦٠) — ستُربط بهذا الفصل."
             action={
               <Link
                 href="/dashboard/subjects"
@@ -533,6 +645,10 @@ export default function GradesClient() {
               </Link>
             }
           />
+        </Card>
+      ) : !subjectId ? (
+        <Card>
+          <EmptyState icon="✍️" title="اختر المادة" description="حدد المادة من القائمة أعلاه." />
         </Card>
       ) : loading ? (
         <Card>
@@ -562,67 +678,94 @@ export default function GradesClient() {
             <table className="w-full min-w-max text-right text-sm">
               <thead className="bg-slate-100/90 text-[11px] text-slate-600">
                 <tr>
-                  <th rowSpan={2} className="border-b border-l border-slate-200 px-2 py-2 font-bold">
+                  {/* شريط أسماء المجموعات فوق بنودها */}
+                  <th colSpan={2} className="border-b border-l border-slate-200 bg-slate-200/80 px-2 py-1 text-[11px] font-extrabold text-slate-700">
+                    بيانات الطالب
+                  </th>
+                  {groupColumns.map((g) => (
+                    <th
+                      key={g.group}
+                      colSpan={g.items.length}
+                      className={`border-b border-l border-slate-200 px-2 py-1.5 text-center text-[12px] font-extrabold ${
+                        g.group === "performance"
+                          ? "bg-sky-200/80 text-sky-900"
+                          : "bg-violet-200/80 text-violet-900"
+                      }`}
+                    >
+                      {GROUP_LABEL[g.group]}
+                      <span className="ms-1.5 rounded bg-white/70 px-1.5 py-0.5 text-[10px] font-bold">
+                        {g.max} / {GROUP_TARGET[g.group]}
+                      </span>
+                    </th>
+                  ))}
+                  <th
+                    colSpan={9}
+                    className="border-b border-l border-slate-200 bg-slate-200/80 px-2 py-1 text-[11px] font-extrabold text-slate-700"
+                  >
+                    النتائج والمجاميع
+                  </th>
+                </tr>
+                <tr>
+                  <th className="border-b border-l border-slate-200 px-2 py-2 font-bold">
                     #
                   </th>
-                  <th rowSpan={2} className="border-b border-l border-slate-200 px-3 py-2 font-bold">
+                  <th className="border-b border-l border-slate-200 px-3 py-2 font-bold">
                     اسم الطالب
                   </th>
-                  {periodGroups.map((group) => (
+                  {groupColumns.map((g) => (
                     <th
-                      key={group.period}
-                      colSpan={group.items.length}
+                      key={g.group}
+                      colSpan={g.items.length}
                       className={`border-b border-l border-slate-200 px-3 py-1.5 text-center font-bold ${
-                        group.period === "p1"
+                        g.group === "performance"
                           ? "bg-sky-100/70 text-sky-800"
                           : "bg-violet-100/70 text-violet-800"
                       }`}
                     >
-                      {group.period === "p1" ? "الفترة الأولى" : "الفترة الثانية"}
-                      <span className="ms-1 font-normal">({group.max})</span>
+                      {GROUP_LABEL[g.group]}
+                      <span className="ms-1 font-normal">({g.max})</span>
                     </th>
                   ))}
-                  <th
-                    rowSpan={2}
-                    className="border-b border-l border-slate-200 bg-slate-50 px-2 py-2 font-bold"
-                  >
+                  <th className="border-b border-l border-slate-200 bg-slate-50 px-2 py-2 font-bold">
                     مجموع {SEMESTER_SHORT[semester]}
                   </th>
-                  <th rowSpan={2} className="border-b border-l border-slate-200 bg-slate-50 px-2 py-2 font-bold">
+                  <th className="border-b border-l border-slate-200 bg-slate-50 px-2 py-2 font-bold">
+                    متوسط الفترتين
+                  </th>
+                  <th className="border-b border-l border-slate-200 bg-slate-50 px-2 py-2 font-bold">
                     %
                   </th>
                   <th
-                    rowSpan={2}
                     className="border-b border-l border-slate-200 bg-slate-50 px-2 py-2 font-bold"
                     title={`مجموع ${SEMESTER_SHORT[otherSemester]}`}
                   >
                     {SEMESTER_SHORT[otherSemester]}
                   </th>
-                  <th rowSpan={2} className="border-b border-l border-slate-200 bg-brand-50 px-2 py-2 font-bold">
+                  <th className="border-b border-l border-slate-200 bg-brand-50 px-2 py-2 font-bold">
                     مجموع الفصلين
                   </th>
-                  <th rowSpan={2} className="border-b border-l border-slate-200 bg-brand-50 px-2 py-2 font-bold">
-                    المتوسط
+                  <th className="border-b border-l border-slate-200 bg-brand-50 px-2 py-2 font-bold">
+                    متوسط الفصلين
                   </th>
-                  <th rowSpan={2} className="border-b border-l border-slate-200 bg-slate-50 px-2 py-2 font-bold">
+                  <th className="border-b border-l border-slate-200 bg-slate-50 px-2 py-2 font-bold">
                     التقدير
                   </th>
-                  <th rowSpan={2} className="border-b border-l border-slate-200 bg-slate-50 px-2 py-2 font-bold">
+                  <th className="border-b border-l border-slate-200 bg-slate-50 px-2 py-2 font-bold">
                     الحالة
                   </th>
                 </tr>
                 <tr>
-                  {periodGroups.flatMap((group) =>
-                    group.items.map((item) => (
+                  {groupColumns.flatMap((g) =>
+                    g.items.map((item) => (
                       <th
                         key={item.id}
-                        title={`${KIND_LABEL[item.kind]} — ${
-                          item.group === "year" ? "أعمال السنة" : "الاختبار النهائي"
-                        }`}
+                        title={`${KIND_LABEL[item.kind] ?? ""} — ${PERIOD_SHORT[item.period]}`}
                         className="border-b border-l border-slate-200 bg-slate-50 px-2 py-1.5 text-center font-bold"
                       >
                         <span className="block max-w-24 truncate text-[10px] leading-4">{item.label}</span>
-                        <span className="text-[9px] font-normal text-slate-400">من {item.max}</span>
+                        <span className="text-[9px] font-normal text-slate-400">
+                          من {item.max} · {PERIOD_SHORT[item.period]}
+                        </span>
                       </th>
                     )),
                   )}
@@ -633,17 +776,14 @@ export default function GradesClient() {
                   const pct = totalMax > 0 ? (row.total / totalMax) * 100 : 0;
                   const rating = ratingFor(pct, row.total, passingScore);
                   const s = summaryMap.get(row.studentId);
+                  const periodAvg = periodAverage(items, row.values);
                   const otherTotal = semester === "first" ? (s?.second ?? 0) : (s?.first ?? 0);
-                  const yearT = yearTotal(
+                  const scores =
                     semester === "first"
                       ? { first: row.total, second: otherTotal }
-                      : { first: otherTotal, second: row.total },
-                  );
-                  const yearA = yearAverage(
-                    semester === "first"
-                      ? { first: row.total, second: otherTotal }
-                      : { first: otherTotal, second: row.total },
-                  );
+                      : { first: otherTotal, second: row.total };
+                  const yT = yearTotal(scores);
+                  const yA = yearAverage(scores);
                   const isOver = items.some((item) => {
                     const v = row.values[item.id];
                     return typeof v === "number" && v > item.max;
@@ -663,8 +803,8 @@ export default function GradesClient() {
                           {row.fullName}
                         </span>
                       </td>
-                      {periodGroups.flatMap((group) =>
-                        group.items.map((item) => {
+                      {groupColumns.flatMap((g) =>
+                        g.items.map((item) => {
                           const globalIndex = items.indexOf(item);
                           const value = row.values[item.id];
                           const over = typeof value === "number" && value > item.max;
@@ -700,6 +840,11 @@ export default function GradesClient() {
                           {row.total}
                         </span>
                       </td>
+                      <td className="px-2 py-1.5 text-center">
+                        <span className="inline-block min-w-12 rounded-lg bg-sky-50 px-2 py-1 text-xs font-extrabold tabular-nums text-sky-700 ring-1 ring-inset ring-sky-200">
+                          {periodAvg > 0 ? periodAvg : "—"}
+                        </span>
+                      </td>
                       <td className="px-2 py-1.5 text-center text-xs font-bold tabular-nums text-slate-500">
                         {totalMax > 0 ? Math.round(pct) : 0}%
                       </td>
@@ -708,12 +853,12 @@ export default function GradesClient() {
                       </td>
                       <td className="px-2 py-1.5 text-center">
                         <span className="inline-block min-w-14 rounded-lg bg-brand-50 px-2 py-1 text-sm font-extrabold tabular-nums text-brand-800 ring-1 ring-inset ring-brand-200">
-                          {yearT > 0 ? yearT : "—"}
+                          {yT > 0 ? yT : "—"}
                         </span>
                       </td>
                       <td className="px-2 py-1.5 text-center">
                         <span className="inline-block min-w-12 rounded-lg bg-slate-100 px-2 py-1 text-xs font-extrabold tabular-nums text-slate-700">
-                          {yearA > 0 ? yearA : "—"}
+                          {yA > 0 ? yA : "—"}
                         </span>
                       </td>
                       <td className="px-2 py-1.5 text-center">
@@ -743,8 +888,8 @@ export default function GradesClient() {
                   <td colSpan={2} className="border-t border-slate-200 px-3 py-2">
                     الملخص ({visibleRows.length} طالب)
                   </td>
-                  {periodGroups.flatMap((group) =>
-                    group.items.map((item) => {
+                  {groupColumns.flatMap((g) =>
+                    g.items.map((item) => {
                       const avg = visibleRows.length
                         ? round2(
                             visibleRows.reduce(
@@ -762,6 +907,13 @@ export default function GradesClient() {
                     }),
                   )}
                   <td className="border-t border-slate-200 px-2 py-2 text-center tabular-nums">{stats.avg}</td>
+                  <td className="border-t border-slate-200 px-2 py-2 text-center tabular-nums text-sky-700">
+                    {summary?.stats
+                      ? semester === "first"
+                        ? summary.stats.avgPeriodFirst || "—"
+                        : summary.stats.avgPeriodSecond || "—"
+                      : "—"}
+                  </td>
                   <td className="border-t border-slate-200 px-2 py-2 text-center tabular-nums">{stats.pct}%</td>
                   <td className="border-t border-slate-200 px-2 py-2 text-center tabular-nums">
                     {summary?.stats
@@ -786,25 +938,30 @@ export default function GradesClient() {
         </div>
       )}
 
-      {/* مفتاح الألوان */}
+      {/* مفتاح الألوان + ملخص المجموعات */}
       {rows.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-[11px] text-slate-600">
           <span className="font-bold">مفتاح الألوان:</span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-3.5 w-3.5 rounded border border-emerald-300 bg-emerald-50" /> درجة كاملة
+            <span className="h-3.5 w-3.5 rounded border border-sky-300 bg-sky-50" /> مهام أدائية
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-3.5 w-3.5 rounded border border-rose-400 bg-rose-50" /> تجاوز الحد الأعلى
+            <span className="h-3.5 w-3.5 rounded border border-violet-300 bg-violet-50" /> تقويم تحريري
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-3.5 w-3.5 rounded bg-rose-100" /> طالب راسب
+            <span className="h-3.5 w-3.5 rounded border border-rose-400 bg-rose-50" /> تجاوز الحد
           </span>
+          {groupColumns.map((g) => {
+            const got = computeGroupTotal(items, visibleRows[0]?.values ?? {}, g.group).max;
+            return (
+              <span key={g.group}>
+                {GROUP_LABEL[g.group]}: <b>{g.max}</b>
+                {got ? ` / ${GROUP_TARGET[g.group]}` : ""}
+              </span>
+            );
+          })}
           <span className="ms-auto">
-            المادة: <b>{currentSubject?.name ?? "—"}</b> · الفصل:{" "}
-            <b>
-              {currentClassroom ? `${GRADE_LABEL_PREFIX} ${currentClassroom.grade} ${currentClassroom.section}` : "—"}
-            </b>{" "}
-            · {SEMESTER_LABEL[semester]} · المجموع <b>{totalMax}</b> · النجاح <b>{passingScore}</b>
+            المجموع <b>{totalMax}</b> · النجاح <b>{passingScore}</b> · {SEMESTER_LABEL[semester]}
           </span>
         </div>
       )}

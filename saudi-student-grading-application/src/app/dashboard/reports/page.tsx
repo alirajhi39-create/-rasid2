@@ -59,6 +59,15 @@ export default function ReportsPage() {
   const classroom = classrooms.find((c) => c.id === classroomId);
 
   const print = (path: string) => {
+    if (path === "/print/semester") {
+      // ملخص الفصل يحتاج الفصل الدراسي فقط (يجمع كل المواد)
+      if (!classroomId) {
+        pushToast("error", "اختر الفصل الدراسي أولاً");
+        return;
+      }
+      window.open(`${path}?classroomId=${classroomId}&semester=${semester}`, "_blank");
+      return;
+    }
     if (!subjectId) {
       pushToast("error", "اختر المادة أولاً");
       return;
@@ -139,7 +148,7 @@ export default function ReportsPage() {
             {
               icon: "📄",
               title: "كشف درجات الفصل",
-              text: "كشف رسمي كامل بجميع الطلاب وبنود التوزيع، مع خانات التوقيع — جاهز للطباعة على A4.",
+              text: "كشف رسمي يعرض مجموع المهام الأدائية ومجموع التقويمات التحريرية لكل طالب مع المجاميع السنوية.",
               action: () => print("/print/class"),
               cta: "طباعة الكشف",
               tone: "from-brand-500 to-brand-700",
@@ -151,6 +160,14 @@ export default function ReportsPage() {
               action: () => print("/print/notices"),
               cta: "طباعة الإشعارات",
               tone: "from-violet-500 to-violet-700",
+            },
+            {
+              icon: "📋",
+              title: `ملخص ${SEMESTER_LABEL[semester]}`,
+              text: `كشف واحد يجمع جميع مواد الفصل: درجة كل طالب في كل مادة + المجموع + النسبة + المتوسط + التقدير + الترتيب، مع متوسط الصف لكل مادة.`,
+              action: () => print("/print/semester"),
+              cta: "طباعة ملخص الفصل",
+              tone: "from-emerald-600 to-teal-700",
             },
             {
               icon: "📅",
@@ -206,11 +223,24 @@ export default function ReportsPage() {
         </Card>
       )}
 
-      <Card title="ملاحظات حول الطباعة" subtitle="للحصول على أفضل نتيجة">
+      <Card title="ملاحظات حول الطباعة" subtitle="الاتجاه والخيارات">
         <ul className="space-y-2 text-xs leading-6 text-slate-600">
-          <li>• اختر <b>A4 بالعرض (Landscape)</b> لكشوف الفصل الكاملة من نافذة الطباعة.</li>
-          <li>• اختر <b>A4 بالطول (Portrait)</b> للإشعارات الفردية.</li>
-          <li>• فعّل خيار <b>طباعة الخلفيات / Background graphics</b> لظهور الترويسة الرسمية.</li>
+          <li>
+            • <b>الاتجاه الافتراضي أفقي (Landscape)</b> — يظهر في أعلى كل صفحة طباعة زر تبديل إلى{" "}
+            <b>عمودي (Portrait)</b>، ويُحفظ اختيارك تلقائياً.
+          </li>
+          <li>
+            • كشوف الفصل تعرض <b>مجموع المهام الأدائية</b> و<b>مجموع التقويمات التحريرية</b> فقط —
+            بدون أسماء البنود الفرعية، لتكون أوضح وأسرع في القراءة.
+          </li>
+          <li>
+            • الإشعارات الفردية تُطبع <b>إشعارين في كل صفحة أفقية</b>، وإشعاراً واحداً في الوضع العمودي.
+          </li>
+          <li>
+            • زر <b>«إخفاء السجل المدني»</b> في أعلى صفحة الطباعة يُخفي عمود رقم الهوية/السجل المدني
+            بالكامل من الكشف والإشعار (محفوظ للمرات القادمة).
+          </li>
+          <li>• فعّل خيار <b>طباعة الخلفيات / Background graphics</b> لظهور الترويسة والشعار الرسمي.</li>
           <li>• يمكنك تعديل اسم المدرسة والإدارة والفصل الدراسي من صفحة الإعدادات.</li>
           <li>• تصدير Excel يُنزَّل مباشرة من الخادم بصيغة .xlsx متوافقة مع نظام نور.</li>
         </ul>

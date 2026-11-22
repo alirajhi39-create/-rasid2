@@ -228,11 +228,14 @@ export default function SettingsPage() {
           <Field label="وزارة / الجهة">
             <Input {...field("ministryOffice")} placeholder="وزارة التعليم" />
           </Field>
-          <Field label="إدارة التعليم / المنطقة">
-            <Input {...field("administration")} placeholder="إدارة التعليم — منطقة الرياض" />
+          <Field
+            label="إدارة التعليم / المنطقة"
+            hint="اختياري — اتركه فارغاً لإخفائه من ترويسة التقارير"
+          >
+            <Input {...field("administration")} placeholder="اتركه فارغاً للإخفاء" />
           </Field>
-          <Field label="العام الدراسي">
-            <Input {...field("academicYear")} placeholder="1447 هـ" />
+          <Field label="العام الدراسي" hint="يظهر في ترويسة التقارير هكذا: العام الدراسي ١٤٤٨هـ">
+            <Input {...field("academicYear")} placeholder="1448هـ" />
           </Field>
           <Field label="الفصل الدراسي الحالي" hint="فصلان دراسيان فقط — يُستخدم كافتراضي عند فتح كشف الرصد">
             <Select {...field("semester")}>

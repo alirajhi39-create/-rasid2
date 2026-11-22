@@ -1,4 +1,4 @@
-import type { ScoreItem, ScoreItemKind, ScorePeriod, Semester } from "@/db/schema";
+import type { ScoreItem, ScoreItemKind, ScorePeriod, ScoreGroup, Semester } from "@/db/schema";
 
 export const APP_NAME = "نظام رصد درجات الطلاب";
 export const APP_SHORT = "رصد";
@@ -34,13 +34,11 @@ export const SEMESTER_SHORT: Record<Semester, string> = {
   second: "الفصل الثاني",
 };
 
-/** تحويل أي نص مخزّن إلى قيمة فصل صالحة */
 export function toSemester(value: string | null | undefined): Semester {
   if (value === "second") return "second";
   return "first";
 }
 
-/** استخراج الفصل من تسمية الإعدادات */
 export function semesterFromLabel(label: string | null | undefined): Semester {
   if (label && /ثان/.test(label)) return "second";
   return "first";
@@ -49,18 +47,26 @@ export function semesterFromLabel(label: string | null | undefined): Semester {
 /** ============================================================
  *  فترتان لكل فصل دراسي
  * ========================================================== */
-export const PERIODS: { value: ScorePeriod; label: string; hint: string; tone: string }[] = [
+export const PERIODS: {
+  value: ScorePeriod;
+  label: string;
+  short: string;
+  hint: string;
+  tone: string;
+}[] = [
   {
     value: "p1",
     label: "الفترة الأولى",
+    short: "ف١",
     hint: "التقييم المستمر في بداية الفصل الدراسي",
     tone: "sky",
   },
   {
     value: "p2",
     label: "الفترة الثانية",
+    short: "ف٢",
     hint: "التقييم المستمر في نهاية الفصل الدراسي",
-    tone: "violet",
+    tone: "amber",
   },
 ];
 
@@ -80,15 +86,17 @@ export function toPeriod(value: string | null | undefined): ScorePeriod {
 
 export const GRADE_LABEL_PREFIX = "الصف";
 
-/** أنواع خانات الدرجات */
-export const ITEM_KINDS: { value: ScoreItemKind; label: string; icon: string }[] = [
-  { value: "performance", label: "المهام الأدائية", icon: "📝" },
-  { value: "participation", label: "المشاركة والتفاعل", icon: "🙋" },
-  { value: "homework", label: "الواجبات", icon: "📚" },
-  { value: "quiz", label: "الاختبارات القصيرة", icon: "⚡" },
-  { value: "written", label: "اختبار تحريري", icon: "🗒️" },
-  { value: "practical", label: "عملي / شفهي", icon: "🔬" },
-  { value: "custom", label: "خانة مخصصة", icon: "➕" },
+/** ============================================================
+ *  أنواع خانات الدرجات
+ * ========================================================== */
+export const ITEM_KINDS: { value: ScoreItemKind; label: string; icon: string; group: ScoreGroup }[] = [
+  { value: "performance", label: "مهمة أدائية", icon: "📝", group: "performance" },
+  { value: "participation", label: "المشاركة والتفاعل", icon: "🙋", group: "performance" },
+  { value: "homework", label: "الواجبات", icon: "📚", group: "performance" },
+  { value: "practical", label: "عملي / شفهي", icon: "🔬", group: "performance" },
+  { value: "quiz", label: "اختبار قصير", icon: "⚡", group: "performance" },
+  { value: "custom", label: "خانة مخصصة", icon: "➕", group: "performance" },
+  { value: "written", label: "تقويم تحريري", icon: "🗒️", group: "written" },
 ];
 
 export const KIND_LABEL: Record<ScoreItemKind, string> = ITEM_KINDS.reduce(
@@ -96,18 +104,60 @@ export const KIND_LABEL: Record<ScoreItemKind, string> = ITEM_KINDS.reduce(
   {} as Record<ScoreItemKind, string>,
 );
 
-export const GROUPS: { value: "year" | "final"; label: string; hint: string }[] = [
+/** ============================================================
+ *  مجموعات التقييم — المهام الأدائية ٤٠ + التقويمات التحريرية ٦٠
+ *  يمكن إضافة عدد غير محدود من الأعمدة تحت كل مجموعة
+ * ========================================================== */
+export const GROUPS: {
+  value: ScoreGroup;
+  label: string;
+  targetMax: number;
+  hint: string;
+  tone: string;
+  ring: string;
+  bg: string;
+  text: string;
+}[] = [
   {
-    value: "year",
-    label: "أعمال السنة",
-    hint: "المهام الأدائية، المشاركة، الواجبات، الاختبارات القصيرة",
+    value: "performance",
+    label: "المهام الأدائية",
+    targetMax: 40,
+    hint: "مهام أدائية، مشاركة، واجبات، اختبارات قصيرة، عملي/شفهي",
+    tone: "sky",
+    ring: "ring-sky-200",
+    bg: "bg-sky-50",
+    text: "text-sky-800",
   },
-  { value: "final", label: "الاختبار النهائي", hint: "تحريري وعملي / شفهي" },
+  {
+    value: "written",
+    label: "التقويمات التحريرية",
+    targetMax: 60,
+    hint: "التقويمات التحريرية المتعددة خلال الفصل الدراسي",
+    tone: "violet",
+    ring: "ring-violet-200",
+    bg: "bg-violet-50",
+    text: "text-violet-800",
+  },
 ];
 
+export const GROUP_LABEL: Record<ScoreGroup, string> = {
+  performance: "المهام الأدائية",
+  written: "التقويمات التحريرية",
+};
+
+export const GROUP_TARGET: Record<ScoreGroup, number> = {
+  performance: 40,
+  written: 60,
+};
+
+/** تحويل آمن لقيمة المجموعة (بيانات قديمة year/final) */
+export function toGroup(value: string | null | undefined): ScoreGroup {
+  if (value === "written" || value === "final") return "written";
+  return "performance";
+}
+
 /* ============================================================
- * قوالب توزيع الدرجات الجاهزة (لائحة تقويم الطالب)
- *  كل قالب يوزّع الخانات على فترتي الفصل الدراسي
+ * قوالب توزيع الدرجات الجاهزة — كلها ٤٠ مهام أدائية + ٦٠ تحريري
  * ========================================================== */
 
 export type DistributionTemplate = {
@@ -124,7 +174,7 @@ const nextId = () => `t${Date.now().toString(36)}_${(seq++).toString(36)}`;
 export function makeItem(
   label: string,
   max: number,
-  group: "year" | "final",
+  group: ScoreGroup,
   kind: ScoreItemKind,
   period: ScorePeriod = "p1",
 ): ScoreItem {
@@ -133,58 +183,72 @@ export function makeItem(
 
 export const TEMPLATES: DistributionTemplate[] = [
   {
-    id: "lower-primary",
-    title: "ابتدائي (١ – ٣) — تقويم مستمر ١٠٠",
-    stage: "ابتدائي",
-    description: "لا نهائي — ٤٠ درجة للفترة الأولى و٦٠ درجة للفترة الثانية",
+    id: "standard-40-60",
+    title: "التوزيع المعتمد — مهام ٤٠ (٤ أعمدة) + تحريري ٦٠ (٤ أعمدة)",
+    stage: "عام",
+    description: "٨ أعمدة موزّعة على فترتي الفصل الدراسي — ٥٠ درجة لكل فترة",
     items: [
-      makeItem("المهام الأدائية", 15, "year", "performance", "p1"),
-      makeItem("المشاركة والتفاعل", 10, "year", "participation", "p1"),
-      makeItem("الواجبات", 15, "year", "homework", "p1"),
-      makeItem("المهام الأدائية", 15, "year", "performance", "p2"),
-      makeItem("المشاركة والتفاعل", 10, "year", "participation", "p2"),
-      makeItem("الاختبارات القصيرة", 35, "year", "quiz", "p2"),
+      makeItem("مهمة أدائية (١)", 10, "performance", "performance", "p1"),
+      makeItem("مهمة أدائية (٢)", 10, "performance", "performance", "p1"),
+      makeItem("تقويم تحريري (١)", 15, "written", "written", "p1"),
+      makeItem("تقويم تحريري (٢)", 15, "written", "written", "p1"),
+      makeItem("مهمة أدائية (٣)", 10, "performance", "performance", "p2"),
+      makeItem("مهمة أدائية (٤)", 10, "performance", "performance", "p2"),
+      makeItem("تقويم تحريري (٣)", 15, "written", "written", "p2"),
+      makeItem("تقويم تحريري (٤)", 15, "written", "written", "p2"),
     ],
   },
   {
-    id: "upper-primary",
-    title: "ابتدائي (٤ – ٦) / متوسط — ٦٠ + ٤٠",
-    stage: "ابتدائي",
-    description: "الفترة الأولى أعمال سنة ٣٠ · الفترة الثانية أعمال سنة ٣٠ + نهائي ٤٠",
+    id: "compact-40-60",
+    title: "مختصر — مهام ٤٠ (٢ عمود) + تحريري ٦٠ (٢ عمود)",
+    stage: "عام",
+    description: "٤ أعمدة فقط — ٢٠ مهام أدائية و٣٠ تحريري في كل فترة",
     items: [
-      makeItem("المهام الأدائية", 10, "year", "performance", "p1"),
-      makeItem("المشاركة والتفاعل", 10, "year", "participation", "p1"),
-      makeItem("الواجبات والاختبارات القصيرة", 10, "year", "homework", "p1"),
-      makeItem("المهام الأدائية", 10, "year", "performance", "p2"),
-      makeItem("المشاركة والواجبات", 10, "year", "participation", "p2"),
-      makeItem("الاختبارات القصيرة", 10, "year", "quiz", "p2"),
-      makeItem("الاختبار النهائي التحريري", 40, "final", "written", "p2"),
+      makeItem("المهام الأدائية — الفترة الأولى", 20, "performance", "performance", "p1"),
+      makeItem("التقويم التحريري — الفترة الأولى", 30, "written", "written", "p1"),
+      makeItem("المهام الأدائية — الفترة الثانية", 20, "performance", "performance", "p2"),
+      makeItem("التقويم التحريري — الفترة الثانية", 30, "written", "written", "p2"),
     ],
   },
   {
-    id: "secondary",
-    title: "ثانوي — ٦٠ + ٤٠ (تحريري + عملي)",
-    stage: "ثانوي",
-    description: "أعمال سنة موزّعة على الفترتين + نهائي تحريري ٣٠ وعملي/شفهي ١٠",
+    id: "detailed-40-60",
+    title: "مفصّل — مهام ٤٠ (٨ أعمدة) + تحريري ٦٠ (٣ أعمدة)",
+    stage: "عام",
+    description: "تقويم مستمر بأعمدة كثيرة + ٣ تقويمات تحريرية",
     items: [
-      makeItem("المهام الأدائية", 15, "year", "performance", "p1"),
-      makeItem("المشاركة والتفاعل", 8, "year", "participation", "p1"),
-      makeItem("الواجبات", 7, "year", "homework", "p1"),
-      makeItem("المهام الأدائية", 15, "year", "performance", "p2"),
-      makeItem("المشاركة والواجبات", 15, "year", "participation", "p2"),
-      makeItem("الاختبار النهائي التحريري", 30, "final", "written", "p2"),
-      makeItem("الاختبار النهائي العملي / الشفهي", 10, "final", "practical", "p2"),
+      makeItem("مهمة أدائية (١)", 5, "performance", "performance", "p1"),
+      makeItem("المشاركة والتفاعل (١)", 5, "performance", "participation", "p1"),
+      makeItem("الواجبات (١)", 5, "performance", "homework", "p1"),
+      makeItem("اختبار قصير (١)", 5, "performance", "quiz", "p1"),
+      makeItem("مهمة أدائية (٢)", 5, "performance", "performance", "p2"),
+      makeItem("المشاركة والتفاعل (٢)", 5, "performance", "participation", "p2"),
+      makeItem("الواجبات (٢)", 5, "performance", "homework", "p2"),
+      makeItem("اختبار قصير (٢)", 5, "performance", "quiz", "p2"),
+      makeItem("التقويم التحريري (١)", 20, "written", "written", "p1"),
+      makeItem("التقويم التحريري (٢)", 20, "written", "written", "p2"),
+      makeItem("التقويم التحريري (٣)", 20, "written", "written", "p2"),
     ],
   },
   {
-    id: "custom-50",
-    title: "قالب مختصر — ٥٠ درجة",
-    stage: "متوسط",
-    description: "٣٠ للفترة الأولى و٢٠ للفترة الثانية — قابل للتعديل بالكامل",
+    id: "no-periods-40-60",
+    title: "بدون فترات — مهام ٤٠ (٢) + تحريري ٦٠ (٢)",
+    stage: "عام",
+    description: "كل الأعمدة في الفترة الثانية — مناسب للتقويم المُجمَّع",
     items: [
-      makeItem("أعمال الفترة الأولى", 30, "year", "performance", "p1"),
-      makeItem("أعمال الفترة الثانية", 15, "year", "participation", "p2"),
-      makeItem("الاختبار النهائي", 5, "final", "written", "p2"),
+      makeItem("المهام الأدائية (١)", 20, "performance", "performance", "p2"),
+      makeItem("المهام الأدائية (٢)", 20, "performance", "performance", "p2"),
+      makeItem("التقويم التحريري (١)", 30, "written", "written", "p2"),
+      makeItem("التقويم التحريري (٢)", 30, "written", "written", "p2"),
+    ],
+  },
+  {
+    id: "blank-40-60",
+    title: "قالب للتعديل — أضف أعمدتك بنفسك",
+    stage: "عام",
+    description: "نقطة بداية بسيطة — استخدم زر «إضافة عمود» تحت كل مجموعة",
+    items: [
+      makeItem("مهمة أدائية", 10, "performance", "performance", "p1"),
+      makeItem("تقويم تحريري", 15, "written", "written", "p1"),
     ],
   },
 ];
