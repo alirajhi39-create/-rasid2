@@ -5,7 +5,7 @@ import { ensureDatabase } from "@/lib/bootstrap";
 import { ownsSubject } from "@/lib/ownership";
 import PrintToolbar from "@/components/print/PrintToolbar";
 import { OfficialHeader, SignaturesFooter } from "@/components/print/OfficialHeader";
-import { loadPrintSettings } from "@/components/print/settings";
+import { loadPrintSettings, thresholdsOf } from "@/components/print/settings";
 import {
   computeGroupTotal,
   getRating,
@@ -79,6 +79,7 @@ export default async function PrintNoticesPage({
   }
 
   const settings = await loadPrintSettings(session.uid);
+  const ratingThresholds = thresholdsOf(settings);
 
   const metaResult = await db.execute<Meta>(sql`
     SELECT s.name AS subject_name, s.items, s.total_max, s.passing_score,
@@ -157,7 +158,7 @@ export default async function PrintNoticesPage({
             const total = Number((semester === "first" ? row.t1 : row.t2) ?? 0);
             const other = Number((semester === "first" ? row.t2 : row.t1) ?? 0);
             const pct = totalMax > 0 ? (total / totalMax) * 100 : 0;
-            const rating = getRating(total, totalMax, passingScore);
+            const rating = getRating(total, totalMax, passingScore, ratingThresholds);
             const pAvg = periodAverage(items, values);
             const groupGotOf = (g: "performance" | "written") => computeGroupTotal(items, values, g).got;
             const yT = yearTotal(

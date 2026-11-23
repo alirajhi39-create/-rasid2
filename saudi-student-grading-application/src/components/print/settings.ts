@@ -10,6 +10,10 @@ const FALLBACK: PrintSettings = {
   academicYear: "1447 هـ",
   semester: "الفصل الدراسي الأول",
   headmasterName: "مدير المدرسة",
+  pctExcellent: 90,
+  pctVgood: 80,
+  pctGood: 65,
+  pctPass: 50,
 };
 
 /**
@@ -24,6 +28,10 @@ export async function loadPrintSettings(userId: number): Promise<PrintSettings> 
            s.teacher_name AS "teacherName",
            s.academic_year AS "academicYear", s.semester,
            s.headmaster_name AS "headmasterName",
+           s.pct_excellent AS "pctExcellent",
+           s.pct_vgood AS "pctVgood",
+           s.pct_good AS "pctGood",
+           s.pct_pass AS "pctPass",
            u.full_name AS user_name
     FROM app_settings s
     LEFT JOIN users u ON u.id = ${userId}
@@ -39,5 +47,23 @@ export async function loadPrintSettings(userId: number): Promise<PrintSettings> 
         ? row.teacherName
         : FALLBACK.teacherName;
 
-  return { ...FALLBACK, ...row, teacherName };
+  return {
+    ...FALLBACK,
+    ...row,
+    teacherName,
+    pctExcellent: Number(row.pctExcellent) || FALLBACK.pctExcellent,
+    pctVgood: Number(row.pctVgood) || FALLBACK.pctVgood,
+    pctGood: Number(row.pctGood) || FALLBACK.pctGood,
+    pctPass: Number(row.pctPass) || FALLBACK.pctPass,
+  };
+}
+
+/** تحويل إعدادات الترويسة إلى حدود التقديرات */
+export function thresholdsOf(settings: PrintSettings) {
+  return {
+    excellent: settings.pctExcellent,
+    vgood: settings.pctVgood,
+    good: settings.pctGood,
+    pass: settings.pctPass,
+  };
 }

@@ -77,10 +77,11 @@ export default async function DashboardPage() {
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       {/* الترويسة الترحيبية */}
-      <div className="animate-fade-up relative overflow-hidden rounded-3xl bg-gradient-to-l from-brand-800 via-brand-700 to-brand-600 p-6 text-white shadow-xl shadow-brand-900/20 sm:p-8">
+      <div className="animate-fade-up relative overflow-hidden rounded-3xl bg-gradient-to-l from-brand-800 via-brand-700 to-brand-600 shadow-xl shadow-brand-900/20">
         <div className="pointer-events-none absolute -left-16 -top-16 h-56 w-56 rounded-full bg-white/10 blur-2xl" />
         <div className="pointer-events-none absolute -bottom-20 right-10 h-56 w-56 rounded-full bg-white/5 blur-2xl" />
-        <div className="relative">
+        <div className="relative grid gap-4 sm:grid-cols-[1fr_auto] sm:items-stretch">
+        <div className="p-6 sm:p-8">
           <p className="text-xs font-semibold text-brand-200">لوحة التحكم</p>
           <h1 className="mt-1.5 text-2xl font-extrabold sm:text-3xl">مرحباً بك في نظام رصد الدرجات</h1>
           <p className="mt-2 max-w-2xl text-sm leading-7 text-brand-100">
@@ -106,6 +107,18 @@ export default async function DashboardPage() {
             >
               🖨️ التقارير
             </Link>
+          </div>
+
+          {/* صورة الطالب */}
+          <div className="relative hidden self-stretch sm:block">
+            <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-24 bg-gradient-to-l from-transparent to-brand-700" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/images/hero-student.jpg"
+              alt="طالب أثناء الدراسة"
+              className="h-full min-h-56 w-full object-cover object-top"
+            />
+            </div>
           </div>
         </div>
       </div>

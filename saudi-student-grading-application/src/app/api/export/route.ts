@@ -5,7 +5,15 @@ import { db } from "@/db";
 import { requireSession } from "@/lib/auth";
 import { ensureDatabase } from "@/lib/bootstrap";
 import { ownsSubject } from "@/lib/ownership";
-import { getRating, normalizeItems, periodAverage, round2, yearAverage, yearTotal } from "@/lib/grades";
+import {
+  getRating,
+  normalizeItems,
+  periodAverage,
+  round2,
+  thresholdsFrom,
+  yearAverage,
+  yearTotal,
+} from "@/lib/grades";
 import { GROUP_LABEL, PERIOD_SHORT, toGroup } from "@/lib/constants";
 import type { GradeValues, ScoreItem, Semester } from "@/db/schema";
 
@@ -44,10 +52,15 @@ export async function GET(request: Request) {
     school_name: string;
     academic_year: string;
     teacher: string;
+    pct_excellent: number;
+    pct_vgood: number;
+    pct_good: number;
+    pct_pass: number;
   }>(sql`
     SELECT s.id, s.name, s.items, s.total_max, s.passing_score, s.classroom_id,
            c.grade, c.section, c.stage,
            st.school_name, st.academic_year,
+           st.pct_excellent, st.pct_vgood, st.pct_good, st.pct_pass,
            COALESCE(NULLIF(u.full_name, ''), st.teacher_name) AS teacher
     FROM subjects s
     LEFT JOIN classrooms c ON c.id = s.classroom_id
@@ -85,6 +98,12 @@ export async function GET(request: Request) {
   const totalMax = Number(subject.total_max);
   const passingScore = Number(subject.passing_score);
   const students = rowsResult.rows ?? [];
+  const ratingThresholds = thresholdsFrom({
+    pctExcellent: subject.pct_excellent,
+    pctVgood: subject.pct_vgood,
+    pctGood: subject.pct_good,
+    pctPass: subject.pct_pass,
+  });
 
   const groupGroupped = (["performance", "written"] as const)
     .map((g) => ({ group: g, list: items.filter((i) => toGroup(i.group) === g) }))
@@ -130,7 +149,7 @@ export async function GET(request: Request) {
         }
       }
       const semTotal = sem === "first" ? t1 : t2;
-      const rating = getRating(semTotal, totalMax, passingScore);
+      const rating = getRating(semTotal, totalMax, passingScore, ratingThresholds);
       const perfSum = groupGroupped
         .find((g) => g.group === "performance")
         ?.list.reduce((s2, i) => s2 + (typeof values[i.id] === "number" ? (values[i.id] as number) : 0), 0) ?? 0;

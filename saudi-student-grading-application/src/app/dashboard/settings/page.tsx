@@ -26,6 +26,10 @@ type Settings = {
   academicYear: string;
   semester: string;
   headmasterName: string;
+  pctExcellent: number;
+  pctVgood: number;
+  pctGood: number;
+  pctPass: number;
 };
 
 type Me = { uid: number; username: string; fullName: string; role: string };
@@ -48,6 +52,10 @@ const EMPTY: Settings = {
   academicYear: "1447 هـ",
   semester: "الفصل الدراسي الأول",
   headmasterName: "",
+  pctExcellent: 90,
+  pctVgood: 80,
+  pctGood: 65,
+  pctPass: 50,
 };
 
 export default function SettingsPage() {
@@ -315,6 +323,81 @@ export default function SettingsPage() {
             )}
           </Button>
         </div>
+      </Card>
+
+      {/* نِسب التقديرات */}
+      <Card
+        title="نِسب التقديرات"
+        subtitle="الحدود المئوية للممتاز والجيد جداً والجيد والمقبول — تُطبَّق فوراً على الرصد والتقارير"
+        action={<Badge tone="violet">قابلة للتعديل</Badge>}
+      >
+        <div className="grid gap-3 sm:grid-cols-4">
+          {[
+            { key: "pctExcellent" as const, label: "ممتاز %", hint: "منها فما فوق" },
+            { key: "pctVgood" as const, label: "جيد جداً %", hint: "منها فما فوق" },
+            { key: "pctGood" as const, label: "جيد %", hint: "منها فما فوق" },
+            { key: "pctPass" as const, label: "مقبول %", hint: "أدنى درجة نجاح" },
+          ].map((item) => (
+            <Field key={item.key} label={item.label} hint={item.hint}>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                value={settings[item.key]}
+                onChange={(e) =>
+                  setSettings((p) => ({ ...p, [item.key]: Number(e.target.value) }))
+                }
+              />
+            </Field>
+          ))}
+        </div>
+
+        {/* شريط معاينة حيّ */}
+        <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
+          <div className="flex h-9 text-[11px] font-extrabold text-white">
+            {[
+              { label: "ضعيف", color: "bg-rose-500", from: 0, to: settings.pctPass },
+              { label: "مقبول", color: "bg-orange-500", from: settings.pctPass, to: settings.pctGood },
+              { label: "جيد", color: "bg-amber-500", from: settings.pctGood, to: settings.pctVgood },
+              { label: "جيد جداً", color: "bg-sky-500", from: settings.pctVgood, to: settings.pctExcellent },
+              { label: "ممتاز", color: "bg-emerald-500", from: settings.pctExcellent, to: 100 },
+            ].map((band) => {
+              const width = Math.max(0, band.to - band.from);
+              return (
+                <div
+                  key={band.label}
+                  className={`grid place-items-center overflow-hidden whitespace-nowrap px-1 transition-all ${band.color}`}
+                  style={{ width: `${width}%` }}
+                  title={`${band.label}: ${band.from}٪ — ${band.to}٪`}
+                >
+                  {width >= 9 ? band.label : ""}
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap justify-between gap-x-3 gap-y-1 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+            <span>
+              ضعيف: أقل من <b>{settings.pctPass}٪</b>
+            </span>
+            <span>
+              مقبول: <b>{settings.pctPass}٪</b>
+            </span>
+            <span>
+              جيد: <b>{settings.pctGood}٪</b>
+            </span>
+            <span>
+              جيد جداً: <b>{settings.pctVgood}٪</b>
+            </span>
+            <span>
+              ممتاز: <b>{settings.pctExcellent}٪</b> فأعلى
+            </span>
+          </div>
+        </div>
+
+        <Alert kind="info" className="mt-4">
+          تُحفظ النِّسب مع «حفظ الإعدادات» وتُطبَّق فوراً على كشوف الرصد والإشعارات والملخص السنوي
+          وملف التصدير لنظام نور.
+        </Alert>
       </Card>
 
       {/* بيانات الحساب */}

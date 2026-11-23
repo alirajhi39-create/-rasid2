@@ -30,11 +30,13 @@ import {
 import {
   computeGroupTotal,
   computeTotal,
+  DEFAULT_THRESHOLDS,
   gradeColorClasses,
   normalizeItems,
   periodAverage,
   round2,
   statsFor,
+  thresholdsFrom,
   yearAverage,
   yearTotal,
 } from "@/lib/grades";
@@ -107,6 +109,7 @@ export default function GradesClient() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [isUnlinked, setIsUnlinked] = useState(false);
+  const [ratingThresholds, setRatingThresholds] = useState(DEFAULT_THRESHOLDS);
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
@@ -150,6 +153,17 @@ export default function GradesClient() {
   useEffect(() => {
     void loadClassrooms();
     void loadAllSubjects();
+    void (async () => {
+      const res = await apiFetch<{
+        settings: {
+          pctExcellent?: number;
+          pctVgood?: number;
+          pctGood?: number;
+          pctPass?: number;
+        };
+      }>("/api/settings");
+      if (res.ok && res.data?.settings) setRatingThresholds(thresholdsFrom(res.data.settings));
+    })();
   }, [loadClassrooms, loadAllSubjects]);
 
   /** مواد الفصل المحدد فقط (مرتبطة به) */
@@ -799,7 +813,7 @@ export default function GradesClient() {
               <tbody className="divide-y divide-slate-100">
                 {visibleRows.map((row, rowIndex) => {
                   const pct = totalMax > 0 ? (row.total / totalMax) * 100 : 0;
-                  const rating = ratingFor(pct, row.total, passingScore);
+                  const rating = ratingFor(pct, row.total, passingScore, ratingThresholds);
                   const s = summaryMap.get(row.studentId);
                   const periodAvg = periodAverage(items, row.values);
                   const otherTotal = semester === "first" ? (s?.second ?? 0) : (s?.first ?? 0);
@@ -1019,19 +1033,24 @@ export default function GradesClient() {
   );
 }
 
-function ratingFor(pct: number, total: number, passing: number) {
+function ratingFor(
+  pct: number,
+  total: number,
+  passing: number,
+  thresholds: { excellent: number; vgood: number; good: number; pass: number },
+) {
   let label = "ضعيف";
   let color = "rose";
-  if (pct >= 90) {
+  if (pct >= thresholds.excellent) {
     label = "ممتاز";
     color = "emerald";
-  } else if (pct >= 80) {
+  } else if (pct >= thresholds.vgood) {
     label = "جيد جداً";
     color = "sky";
-  } else if (pct >= 65) {
+  } else if (pct >= thresholds.good) {
     label = "جيد";
     color = "amber";
-  } else if (pct >= 50) {
+  } else if (pct >= thresholds.pass) {
     label = "مقبول";
     color = "orange";
   }

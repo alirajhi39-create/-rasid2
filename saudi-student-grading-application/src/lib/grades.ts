@@ -78,11 +78,70 @@ export function itemsByPeriod(items: ScoreItem[]): { period: ScorePeriod; items:
     .filter((g) => g.items.length > 0);
 }
 
-export function getRating(total: number, totalMax: number, passingScore: number): RatingInfo {
-  const pct = totalMax > 0 ? (total / totalMax) * 100 : 0;
-  const found = RATINGS.find((r) => pct >= r.min) ?? RATINGS[RATINGS.length - 1];
+/** حدود النِّسب المئوية للتقديرات — تُضبط من الإعدادات */
+export type RatingThresholds = {
+  excellent: number;
+  vgood: number;
+  good: number;
+  pass: number;
+};
+
+/** القيم الافتراضية (لائحة تقويم الطالب) */
+export const DEFAULT_THRESHOLDS: RatingThresholds = {
+  excellent: 90,
+  vgood: 80,
+  good: 65,
+  pass: 50,
+};
+
+/** تحويل إعدادات المخزن إلى حدود */
+export function thresholdsFrom(
+  source:
+    | {
+        pctExcellent?: number | null;
+        pctVgood?: number | null;
+        pctGood?: number | null;
+        pctPass?: number | null;
+      }
+    | null
+    | undefined,
+): RatingThresholds {
+  if (!source) return DEFAULT_THRESHOLDS;
+  const num = (v: number | null | undefined, fallback: number) =>
+    Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : fallback;
   return {
-    key: found.key,
+    excellent: num(source.pctExcellent, DEFAULT_THRESHOLDS.excellent),
+    vgood: num(source.pctVgood, DEFAULT_THRESHOLDS.vgood),
+    good: num(source.pctGood, DEFAULT_THRESHOLDS.good),
+    pass: num(source.pctPass, DEFAULT_THRESHOLDS.pass),
+  };
+}
+
+/** بناء قائمة التقديرات مرتّبة تنازلياً حسب الحدود */
+export function ratingScale(t: RatingThresholds = DEFAULT_THRESHOLDS) {
+  const ex = Math.max(t.excellent, t.vgood, t.good, t.pass);
+  const vg = Math.max(t.vgood, t.good, t.pass);
+  const gd = Math.max(t.good, t.pass);
+  const ps = Math.max(t.pass, 1);
+  return [
+    { ...RATINGS[0], min: ex },
+    { ...RATINGS[1], min: vg },
+    { ...RATINGS[2], min: gd },
+    { ...RATINGS[3], min: ps },
+    { ...RATINGS[4], min: 0 },
+  ];
+}
+
+export function getRating(
+  total: number,
+  totalMax: number,
+  passingScore: number,
+  thresholds: RatingThresholds = DEFAULT_THRESHOLDS,
+): RatingInfo {
+  const pct = totalMax > 0 ? (total / totalMax) * 100 : 0;
+  const found = ratingScale(thresholds).find((r) => pct >= r.min) ?? RATINGS[RATINGS.length - 1];
+  return {
+    key: found.key as RatingKey,
     label: found.label,
     color: found.color,
     passed: total >= passingScore,

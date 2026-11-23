@@ -5,7 +5,7 @@ import { ensureDatabase } from "@/lib/bootstrap";
 import { ownsClassroom } from "@/lib/ownership";
 import PrintToolbar from "@/components/print/PrintToolbar";
 import { OfficialHeader, SignaturesFooter } from "@/components/print/OfficialHeader";
-import { loadPrintSettings } from "@/components/print/settings";
+import { loadPrintSettings, thresholdsOf } from "@/components/print/settings";
 import {
   computeGroupTotal,
   getRating,
@@ -100,6 +100,7 @@ export default async function PrintSemesterPage({
   }
 
   const settings = await loadPrintSettings(session.uid);
+  const ratingThresholds = thresholdsOf(settings);
 
   /* ------------------------- بيانات الفصل ------------------------- */
   const classroomResult = await db.execute<{ grade: string; section: string; stage: string }>(
@@ -196,7 +197,7 @@ export default async function PrintSemesterPage({
     const average = gradedCount > 0 ? round2(grandTotal / gradedCount) : 0;
     // درجة النجاح المركّبة: نصف مجموع العظمى للمواد المرصدة
     const passing = round2(maxPossible / 2);
-    const rating = getRating(grandTotal, maxPossible, passing);
+    const rating = getRating(grandTotal, maxPossible, passing, ratingThresholds);
 
     return {
       id: student.id,

@@ -75,6 +75,11 @@ export const appSettings = pgTable("app_settings", {
   academicYear: text("academic_year").notNull().default("1447 هـ"),
   semester: text("semester").notNull().default("الفصل الدراسي الأول"),
   headmasterName: text("headmaster_name").notNull().default("مدير المدرسة"),
+  /* حدود النِّسب المئوية للتقديرات — قابلة للتعديل من الإعدادات */
+  pctExcellent: integer("pct_excellent").notNull().default(90),
+  pctVgood: integer("pct_vgood").notNull().default(80),
+  pctGood: integer("pct_good").notNull().default(65),
+  pctPass: integer("pct_pass").notNull().default(50),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

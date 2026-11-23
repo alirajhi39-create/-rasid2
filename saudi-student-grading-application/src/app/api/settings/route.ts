@@ -15,6 +15,10 @@ const FIELDS = [
   "academic_year",
   "semester",
   "headmaster_name",
+  "pct_excellent",
+  "pct_vgood",
+  "pct_good",
+  "pct_pass",
 ] as const;
 
 type SettingsShape = {
@@ -26,6 +30,10 @@ type SettingsShape = {
   academicYear: string;
   semester: string;
   headmasterName: string;
+  pctExcellent: number;
+  pctVgood: number;
+  pctGood: number;
+  pctPass: number;
 };
 
 const CAMEL: Record<(typeof FIELDS)[number], keyof SettingsShape> = {
@@ -36,16 +44,51 @@ const CAMEL: Record<(typeof FIELDS)[number], keyof SettingsShape> = {
   academic_year: "academicYear",
   semester: "semester",
   headmaster_name: "headmasterName",
+  pct_excellent: "pctExcellent",
+  pct_vgood: "pctVgood",
+  pct_good: "pctGood",
+  pct_pass: "pctPass",
 };
+
+/* حدود النِّسب المئوية للتقديرات (ممتاز / جيد جداً / جيد / مقبول) */
+const PCT_FIELDS = ["pct_excellent", "pct_vgood", "pct_good", "pct_pass"] as const;
+const PCT_CAMEL: Record<(typeof PCT_FIELDS)[number], string> = {
+  pct_excellent: "pctExcellent",
+  pct_vgood: "pctVgood",
+  pct_good: "pctGood",
+  pct_pass: "pctPass",
+};
+
+/** تحويل صف قاعدة البيانات (snake_case) إلى شكل الواجهة (camelCase) */
+function toSettingsShape(row: Record<string, unknown> | undefined): SettingsShape {
+  const str = (v: unknown, fallback = "") => (typeof v === "string" ? v : String(v ?? fallback));
+  const num = (v: unknown, fallback: number) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
+  return {
+    id: num(row?.id, 1),
+    schoolName: str(row?.school_name),
+    administration: str(row?.administration),
+    ministryOffice: str(row?.ministry_office, "وزارة التعليم"),
+    teacherName: str(row?.teacher_name),
+    academicYear: str(row?.academic_year),
+    semester: str(row?.semester),
+    headmasterName: str(row?.headmaster_name),
+    pctExcellent: num(row?.pct_excellent, 90),
+    pctVgood: num(row?.pct_vgood, 80),
+    pctGood: num(row?.pct_good, 65),
+    pctPass: num(row?.pct_pass, 50),
+  };
+}
 
 export async function GET() {
   const guard = await requireSession();
   if (!guard.ok) return guard.response;
   await ensureDatabase();
 
-  const result = await db.execute<SettingsShape>(sql`SELECT * FROM app_settings WHERE id = 1 LIMIT 1`);
-  const row = result.rows?.[0];
-  if (!row) {
+  const result = await db.execute<Record<string, unknown>>(
+    sql`SELECT * FROM app_settings WHERE id = 1 LIMIT 1`,
+  );
+  const raw = result.rows?.[0];
+  if (!raw) {
     await db.execute(sql`INSERT INTO app_settings (id) VALUES (1)`);
     return NextResponse.json({
       ok: true,
@@ -58,10 +101,14 @@ export async function GET() {
         academicYear: "1447 هـ",
         semester: "الفصل الدراسي الأول",
         headmasterName: "مدير المدرسة",
+        pctExcellent: 90,
+        pctVgood: 80,
+        pctGood: 65,
+        pctPass: 50,
       },
     });
   }
-  return NextResponse.json({ ok: true, settings: row });
+  return NextResponse.json({ ok: true, settings: toSettingsShape(raw) });
 }
 
 export async function PUT(request: Request) {
@@ -85,14 +132,50 @@ export async function PUT(request: Request) {
       }
       updates.push(`${field} = '${clean.replace(/'/g, "''")}'`);
     }
+    // حدود النِّسب: تُتحقَّق منطقياً وتُرتَّب تصاعدياً
+    const pctValues: Record<string, number> = {};
+    for (const field of PCT_FIELDS) {
+      const raw = body[PCT_CAMEL[field]];
+      if (raw === undefined || raw === null || raw === "") continue;
+      const value = Number(raw);
+      if (!Number.isFinite(value) || value < 0 || value > 100) {
+        return NextResponse.json(
+          { ok: false, error: "النِّسب المئوية يجب أن تكون بين ٠ و ١٠٠" },
+          { status: 400 },
+        );
+      }
+      pctValues[field] = Math.round(value);
+    }
+    if (Object.keys(pctValues).length >= 2) {
+      const excellent = pctValues.pct_excellent ?? 90;
+      const vgood = pctValues.pct_vgood ?? 80;
+      const good = pctValues.pct_good ?? 65;
+      const pass = pctValues.pct_pass ?? 50;
+      if (!(excellent >= vgood && vgood >= good && good >= pass)) {
+        return NextResponse.json(
+          { ok: false, error: "يجب أن تكون النسب متسلسلة: ممتاز ≥ جيد جداً ≥ جيد ≥ مقبول" },
+          { status: 400 },
+        );
+      }
+      for (const [field, value] of Object.entries(pctValues)) {
+        updates.push(`${field} = ${value}`);
+      }
+    }
+
     if (updates.length === 0) {
       return NextResponse.json({ ok: false, error: "لا توجد بيانات للتحديث" }, { status: 400 });
     }
     await db.execute(
       sql.raw(`UPDATE app_settings SET ${updates.join(", ")}, updated_at = now() WHERE id = 1`),
     );
-    const result = await db.execute<SettingsShape>(sql`SELECT * FROM app_settings WHERE id = 1`);
-    return NextResponse.json({ ok: true, settings: result.rows?.[0], message: "تم حفظ الإعدادات" });
+    const result = await db.execute<Record<string, unknown>>(
+      sql`SELECT * FROM app_settings WHERE id = 1`,
+    );
+    return NextResponse.json({
+      ok: true,
+      settings: toSettingsShape(result.rows?.[0]),
+      message: "تم حفظ الإعدادات",
+    });
   } catch (error) {
     return NextResponse.json(
       {

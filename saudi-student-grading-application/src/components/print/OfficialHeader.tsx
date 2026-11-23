@@ -8,6 +8,11 @@ export type PrintSettings = {
   academicYear: string;
   semester: string;
   headmasterName: string;
+  /** حدود النِّسب المئوية للتقديرات */
+  pctExcellent: number;
+  pctVgood: number;
+  pctGood: number;
+  pctPass: number;
 };
 
 /** شعار وزارة التعليم */

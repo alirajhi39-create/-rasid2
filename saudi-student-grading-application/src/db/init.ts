@@ -59,8 +59,16 @@ export async function initDatabase() {
       academic_year text NOT NULL DEFAULT '1447 هـ',
       semester text NOT NULL DEFAULT 'الفصل الدراسي الأول',
       headmaster_name text NOT NULL DEFAULT 'مدير المدرسة',
+      pct_excellent integer NOT NULL DEFAULT 90,
+      pct_vgood integer NOT NULL DEFAULT 80,
+      pct_good integer NOT NULL DEFAULT 65,
+      pct_pass integer NOT NULL DEFAULT 50,
       updated_at timestamptz NOT NULL DEFAULT now()
     )`);
+  await runRawSafe(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS pct_excellent integer NOT NULL DEFAULT 90`);
+  await runRawSafe(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS pct_vgood integer NOT NULL DEFAULT 80`);
+  await runRawSafe(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS pct_good integer NOT NULL DEFAULT 65`);
+  await runRawSafe(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS pct_pass integer NOT NULL DEFAULT 50`);
   steps.push("app_settings");
 
   /* ----------------------- classrooms ----------------------- */

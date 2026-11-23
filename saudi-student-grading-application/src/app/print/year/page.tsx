@@ -5,7 +5,7 @@ import { ensureDatabase } from "@/lib/bootstrap";
 import { ownsSubject } from "@/lib/ownership";
 import PrintToolbar from "@/components/print/PrintToolbar";
 import { OfficialHeader, SignaturesFooter } from "@/components/print/OfficialHeader";
-import { loadPrintSettings } from "@/components/print/settings";
+import { loadPrintSettings, thresholdsOf } from "@/components/print/settings";
 import { getRating, round2, toArabicDigits, yearAverage, yearTotal } from "@/lib/grades";
 import { GROUP_LABEL } from "@/lib/constants";
 
@@ -62,6 +62,7 @@ export default async function PrintYearPage({
   }
 
   const settings = await loadPrintSettings(session.uid);
+  const ratingThresholds = thresholdsOf(settings);
 
   const metaResult = await db.execute<Meta>(sql`
     SELECT s.name AS subject_name, s.total_max, s.passing_score,
@@ -190,9 +191,9 @@ export default async function PrintYearPage({
               const second = Number(row.t2 ?? 0);
               const yT = yearTotal({ first, second });
               const yA = yearAverage({ first, second });
-              const r1 = getRating(first, totalMax, passingScore);
-              const r2 = getRating(second, totalMax, passingScore);
-              const yr = getRating(yT, yearMaxValue, yearPass);
+              const r1 = getRating(first, totalMax, passingScore, ratingThresholds);
+              const r2 = getRating(second, totalMax, passingScore, ratingThresholds);
+              const yr = getRating(yT, yearMaxValue, yearPass, ratingThresholds);
               const pct = yearMaxValue > 0 ? (yT / yearMaxValue) * 100 : 0;
               return (
                 <tr key={row.id} className="avoid-break">
