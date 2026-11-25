@@ -24,6 +24,7 @@ type StudentWithGrades = {
   full_name: string;
   national_id: string | null;
   class_number: number | null;
+  guardian_phone: string | null;
   grade_id: number | null;
   values: GradeValues | null;
   total: string | null;
@@ -99,7 +100,7 @@ export async function GET(request: Request) {
   }
 
   const studentsResult = await db.execute<StudentWithGrades>(sql`
-    SELECT st.id, st.full_name, st.national_id, st.class_number,
+    SELECT st.id, st.full_name, st.national_id, st.class_number, st.guardian_phone,
            g.id AS grade_id, g.values, g.total
     FROM students st
     LEFT JOIN grades g ON g.student_id = st.id AND g.subject_id = ${subjectId} AND g.semester = ${semester}
@@ -127,6 +128,7 @@ export async function GET(request: Request) {
       fullName: row.full_name,
       nationalId: row.national_id,
       classNumber: row.class_number,
+      guardianPhone: row.guardian_phone ?? null,
       values: (row.values ?? {}) as GradeValues,
       total: Number(row.total ?? 0),
     })),

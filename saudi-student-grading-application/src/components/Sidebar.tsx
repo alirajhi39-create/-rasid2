@@ -8,6 +8,8 @@ const NAV = [
   { href: "/dashboard", label: "الرئيسية", icon: "🏠", desc: "نظرة عامة" },
   { href: "/dashboard/students", label: "الطلاب والفصول", icon: "👨‍🎓", desc: "إضافة واستيراد" },
   { href: "/dashboard/subjects", label: "المواد والتوزيع", icon: "📚", desc: "خانات الدرجات" },
+  { href: "/dashboard/analytics", label: "تحليل النتائج", icon: "📊", desc: "لكل مادة وفصل" },
+  { href: "/dashboard/notifications", label: "الإرسال الجماعي", icon: "💬", desc: "واتساب لأولياء الأمور" },
   { href: "/dashboard/grades", label: "رصد الدرجات", icon: "✍️", desc: "الجدول السريع" },
   { href: "/dashboard/reports", label: "التقارير والطباعة", icon: "🖨️", desc: "PDF ونور" },
   { href: "/dashboard/settings", label: "الإعدادات", icon: "⚙️", desc: "المدرسة والحساب" },

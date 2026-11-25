@@ -138,14 +138,15 @@ export default function SubjectsPage() {
     return out;
   }, [items]);
 
-  const totals = useMemo(
-    () => ({
+  const totals = useMemo(() => {
+    const oral = groupSums.oral?.sum ?? 0;
+    return {
       performance: groupSums.performance.sum,
       written: groupSums.written.sum,
-      total: groupSums.performance.sum + groupSums.written.sum,
-    }),
-    [groupSums],
-  );
+      oral,
+      total: groupSums.performance.sum + groupSums.written.sum + oral,
+    };
+  }, [groupSums]);
 
   function applyTemplate(templateId: string) {
     const template = TEMPLATES.find((t) => t.id === templateId);
@@ -341,8 +342,10 @@ export default function SubjectsPage() {
               const sum = subjectItems
                 .filter((i) => toGroup(i.group) === g.value)
                 .reduce((s, i) => s + Number(i.max || 0), 0);
+              // لا نعرض المجموعات الفارغة (مثل الشفوية إن لم تُستخدم)
+              if (sum <= 0) return null;
               return (
-                <Badge key={g.value} tone={g.tone}>
+                <Badge key={g.value} tone={g.tone === "teal" ? "emerald" : g.tone}>
                   {g.label} {sum}
                 </Badge>
               );
@@ -626,9 +629,16 @@ export default function SubjectsPage() {
             const groupItems = items
               .map((item, i) => ({ item, i }))
               .filter(({ item }) => toGroup(item.group) === group.value);
-            const sum = groupSums[group.value].sum;
+            const sum = groupSums[group.value]?.sum ?? 0;
+            const hasTarget = group.targetMax > 0;
             const diff = Math.round((sum - group.targetMax) * 100) / 100;
-            const balanced = Math.abs(diff) < 0.01;
+            // بلا هدف ثابت (التقويمات التحريرية والشفوية) لا نطالب بالتوازن
+            const balanced = hasTarget ? Math.abs(diff) < 0.01 : true;
+            const barPct = hasTarget
+              ? Math.min(100, (sum / group.targetMax) * 100)
+              : sum > 0
+                ? 100
+                : 0;
 
             return (
               <div
@@ -640,15 +650,15 @@ export default function SubjectsPage() {
                     <p className={`text-sm font-extrabold ${group.text}`}>
                       {group.label}
                       <span className="ms-2 text-[11px] font-normal text-slate-500">
-                        الهدف {group.targetMax} درجة
+                        {hasTarget ? `الهدف ${group.targetMax} درجة` : "الدرجة حسب أعمدتك"}
                       </span>
                     </p>
                     <p className="text-[11px] text-slate-500">{group.hint}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge tone={balanced ? "emerald" : diff > 0 ? "rose" : "amber"}>
-                      {sum} / {group.targetMax}
-                      {balanced ? " ✓" : diff > 0 ? ` (+${diff})` : ` (${diff})`}
+                      {hasTarget ? `${sum} / ${group.targetMax}` : `${sum} درجة`}
+                      {hasTarget && !balanced ? (diff > 0 ? ` (+${diff})` : ` (${diff})`) : ""}
                     </Badge>
                     <Button size="sm" variant="secondary" onClick={() => autoBalance(group.value)}>
                       ⚖ توزيع تلقائي
@@ -665,7 +675,7 @@ export default function SubjectsPage() {
                     className={`h-full rounded-full transition-all ${
                       balanced ? "bg-emerald-500" : diff > 0 ? "bg-rose-500" : "bg-amber-400"
                     }`}
-                    style={{ width: `${Math.min(100, (sum / group.targetMax) * 100)}%` }}
+                    style={{ width: `${barPct}%` }}
                   />
                 </div>
 
@@ -757,7 +767,11 @@ export default function SubjectsPage() {
             <p className="text-xs font-bold text-brand-100">
               ملخص توزيع الدرجات — لكل فصل دراسي
             </p>
-            <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+            <div
+              className={`mt-2 grid gap-2 text-center ${
+                totals.oral > 0 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"
+              }`}
+            >
               <div className="rounded-xl bg-white/15 px-2 py-2.5">
                 <p className="text-lg font-extrabold tabular-nums">{totals.performance}</p>
                 <p className="text-[10px] text-brand-100">المهام الأدائية</p>
@@ -766,15 +780,24 @@ export default function SubjectsPage() {
                 <p className="text-lg font-extrabold tabular-nums">{totals.written}</p>
                 <p className="text-[10px] text-brand-100">التقويمات التحريرية</p>
               </div>
+              {totals.oral > 0 && (
+                <div className="rounded-xl bg-teal-300/40 px-2 py-2.5">
+                  <p className="text-lg font-extrabold tabular-nums">{totals.oral}</p>
+                  <p className="text-[10px] text-brand-100">التحريرية والشفوية</p>
+                </div>
+              )}
               <div className="rounded-xl bg-white px-2 py-2.5 text-brand-700">
                 <p className="text-lg font-extrabold tabular-nums">{totals.total}</p>
                 <p className="text-[10px] text-brand-600">مجموع الفصل</p>
               </div>
             </div>
             <p className="mt-2.5 text-[11px] leading-5 text-brand-100">
-              عدد الأعمدة: {groupSums.performance.count} مهام أدائية + {groupSums.written.count} تقويم
-              تحريري = {groupSums.performance.count + groupSums.written.count} عمود · مجموع الفصلين
-              (السنوي) = <b>{totals.total * 2}</b>
+              عدد الأعمدة: {groupSums.performance.count} أدائية + {groupSums.written.count} تحريري
+              {totals.oral > 0 ? ` + ${groupSums.oral?.count ?? 0} شفهي` : ""} ={" "}
+              {groupSums.performance.count +
+                groupSums.written.count +
+                (groupSums.oral?.count ?? 0)}{" "}
+              عمود · مجموع الفصلين (السنوي) = <b>{totals.total * 2}</b>
             </p>
           </div>
 
@@ -784,10 +807,17 @@ export default function SubjectsPage() {
               «توزيع تلقائي» للموازنة.
             </Alert>
           )}
-          {totals.written !== 60 && (
-            <Alert kind={totals.written > 60 ? "error" : "warn"}>
-              مجموع التقويمات التحريرية <b>{totals.written}</b> والمعتمد <b>٦٠</b> درجة — استخدم زر
-              «توزيع تلقائي» للموازنة.
+          {totals.written + totals.oral !== 60 && (
+            <Alert kind={totals.written + totals.oral > 60 ? "error" : "warn"}>
+              مجموع (التقويمات التحريرية {totals.written}
+              {totals.oral > 0 ? ` + التحريرية والشفوية ${totals.oral}` : ""}) ={" "}
+              <b>{totals.written + totals.oral}</b> والمعتمد <b>٦٠</b> درجة — استخدم زر «توزيع
+              تلقائي» للموازنة.
+            </Alert>
+          )}
+          {totals.total !== 100 && (
+            <Alert kind="warn">
+              مجموع الفصل الدراسي <b>{totals.total}</b> والمعتمد <b>١٠٠</b> درجة.
             </Alert>
           )}
         </div>

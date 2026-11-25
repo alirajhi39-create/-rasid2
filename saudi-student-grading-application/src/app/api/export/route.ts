@@ -105,7 +105,7 @@ export async function GET(request: Request) {
     pctPass: subject.pct_pass,
   });
 
-  const groupGroupped = (["performance", "written"] as const)
+  const groupGroupped = (["performance", "written", "oral"] as const)
     .map((g) => ({ group: g, list: items.filter((i) => toGroup(i.group) === g) }))
     .filter((g) => g.list.length > 0);
 
@@ -154,8 +154,17 @@ export async function GET(request: Request) {
         .find((g) => g.group === "performance")
         ?.list.reduce((s2, i) => s2 + (typeof values[i.id] === "number" ? (values[i.id] as number) : 0), 0) ?? 0;
       const writSum = groupGroupped
-        .find((g) => g.group === "written")
-        ?.list.reduce((s2, i) => s2 + (typeof values[i.id] === "number" ? (values[i.id] as number) : 0), 0) ?? 0;
+        .filter((g) => g.group === "written" || g.group === "oral")
+        .reduce(
+          (acc, g) =>
+            acc +
+            g.list.reduce(
+              (s2, i) =>
+                s2 + (typeof values[i.id] === "number" ? (values[i.id] as number) : 0),
+              0,
+            ),
+          0,
+        );
       out.push(
         perfSum,
         writSum,
@@ -208,6 +217,7 @@ export async function GET(request: Request) {
     ["مجموع المهام الأدائية", "", "", groupGroupped.find((g) => g.group === "performance")?.list.reduce((s, i) => s + i.max, 0) ?? 0],
     ["الهدف المعتمد للمهام الأدائية", "", "", 40],
     ["مجموع التقويمات التحريرية", "", "", groupGroupped.find((g) => g.group === "written")?.list.reduce((s, i) => s + i.max, 0) ?? 0],
+    ["مجموع التقويمات التحريرية والشفوية", "", "", groupGroupped.find((g) => g.group === "oral")?.list.reduce((s, i) => s + i.max, 0) ?? 0],
     ["الهدف المعتمد للتقويمات التحريرية", "", "", 60],
     ["مجموع الفصل الدراسي", "", "", totalMax],
     ["درجة النجاح", "", "", passingScore],

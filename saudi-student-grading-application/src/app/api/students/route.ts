@@ -14,6 +14,7 @@ type StudentRow = {
   national_id: string | null;
   classroom_id: number;
   class_number: number | null;
+  guardian_phone: string | null;
   notes: string | null;
   active: boolean;
   grade: string;
@@ -42,8 +43,8 @@ export async function GET(request: Request) {
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
   const result = await db.execute<StudentRow>(sql.raw(`
-    SELECT s.id, s.full_name, s.national_id, s.classroom_id, s.class_number, s.notes, s.active,
-           c.grade, c.section, c.stage
+    SELECT s.id, s.full_name, s.national_id, s.classroom_id, s.class_number, s.guardian_phone,
+           s.notes, s.active, c.grade, c.section, c.stage
     FROM students s
     JOIN classrooms c ON c.id = s.classroom_id
     ${where}
@@ -64,6 +65,7 @@ export async function POST(request: Request) {
       nationalId?: string;
       classroomId?: number;
       classNumber?: number | null;
+      guardianPhone?: string;
       notes?: string;
     };
 
@@ -77,6 +79,8 @@ export async function POST(request: Request) {
     }
 
     const nationalId = (body.nationalId ?? "").trim() || null;
+    const guardianPhone =
+      String(body.guardianPhone ?? "").replace(/[^\d+]/g, "").slice(0, 20) || null;
     if (nationalId && !/^\d{8,12}$/.test(nationalId)) {
       return NextResponse.json(
         { ok: false, error: "رقم الهوية / السجل المدني يجب أن يكون من ٨ إلى ١٢ رقماً" },
@@ -97,9 +101,9 @@ export async function POST(request: Request) {
     }
 
     const inserted = await db.execute<StudentRow>(sql`
-      INSERT INTO students (full_name, national_id, classroom_id, class_number, notes)
-      VALUES (${fullName}, ${nationalId}, ${classroomId}, ${Number(classNumber)}, ${body.notes ?? null})
-      RETURNING id, full_name, national_id, classroom_id, class_number, notes, active
+      INSERT INTO students (full_name, national_id, classroom_id, class_number, guardian_phone, notes)
+      VALUES (${fullName}, ${nationalId}, ${classroomId}, ${Number(classNumber)}, ${guardianPhone}, ${body.notes ?? null})
+      RETURNING id, full_name, national_id, classroom_id, class_number, guardian_phone, notes, active
     `);
 
     return NextResponse.json({ ok: true, student: inserted.rows?.[0] }, { status: 201 });

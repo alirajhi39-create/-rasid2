@@ -486,6 +486,8 @@ export default async function PrintSemesterPage({
         <SignaturesFooter
           teacherName={settings.teacherName}
           headmasterName={settings.headmasterName}
+          teacherSignature={settings.teacherSignature}
+          headmasterSignature={settings.headmasterSignature}
           note={`يشمل هذا الملخص جميع مواد ${SEMESTER_LABEL[semester]} للصف ${classroom.grade} ${classroom.section}.`}
         />
 

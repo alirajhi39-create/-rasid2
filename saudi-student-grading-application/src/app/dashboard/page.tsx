@@ -1,4 +1,5 @@
 import Link from "next/link";
+import heroStudent from "@/assets/images/hero-student.jpg";
 import { redirect } from "next/navigation";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
@@ -114,7 +115,7 @@ export default async function DashboardPage() {
             <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-24 bg-gradient-to-l from-transparent to-brand-700" />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/images/hero-student.jpg"
+              src={heroStudent.src}
               alt="طالب أثناء الدراسة"
               className="h-full min-h-56 w-full object-cover object-top"
             />

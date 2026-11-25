@@ -169,15 +169,22 @@ input[type="number"] {
     table-layout: fixed !important;
   }
 
-  /* توزيع الأعمدة: عمود رقم صغير، عمود الاسم أوسع، والباقي متساوٍ */
+  /* توزيع الأعمدة: عمود رقم صغير جداً، وعمود اسم الطالب مُصغَّر، والباقي للبيانات */
   th:first-child,
   td:first-child {
-    width: 4%;
+    width: 3.5%;
+    padding-left: 2px !important;
+    padding-right: 2px !important;
   }
 
+  /* عمود اسم الطالب — مُصغَّر مع السماح بالتفاف الاسم دون قصّه */
   th:nth-child(2),
   td:nth-child(2) {
-    width: 15%;
+    width: 11%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: right;
+    padding-right: 4px !important;
   }
 
   /* منع تكسير الصفوف عبر الصفحات */

@@ -14,6 +14,8 @@ const FALLBACK: PrintSettings = {
   pctVgood: 80,
   pctGood: 65,
   pctPass: 50,
+  teacherSignature: null,
+  headmasterSignature: null,
 };
 
 /**
@@ -32,6 +34,8 @@ export async function loadPrintSettings(userId: number): Promise<PrintSettings> 
            s.pct_vgood AS "pctVgood",
            s.pct_good AS "pctGood",
            s.pct_pass AS "pctPass",
+           s.teacher_signature AS "teacherSignature",
+           s.headmaster_signature AS "headmasterSignature",
            u.full_name AS user_name
     FROM app_settings s
     LEFT JOIN users u ON u.id = ${userId}
@@ -55,6 +59,9 @@ export async function loadPrintSettings(userId: number): Promise<PrintSettings> 
     pctVgood: Number(row.pctVgood) || FALLBACK.pctVgood,
     pctGood: Number(row.pctGood) || FALLBACK.pctGood,
     pctPass: Number(row.pctPass) || FALLBACK.pctPass,
+    teacherSignature: typeof row.teacherSignature === "string" ? row.teacherSignature : null,
+    headmasterSignature:
+      typeof row.headmasterSignature === "string" ? row.headmasterSignature : null,
   };
 }
 

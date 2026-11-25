@@ -64,7 +64,7 @@ export function toPeriod(value: string | null | undefined): ScorePeriod {
 
 /** إرجاع الخانات مُرتَّبة حسب المجموعة (المهام الأدائية ثم التقويمات التحريرية) */
 export function itemsByGroup(items: ScoreItem[]): { group: ScoreGroup; items: ScoreItem[] }[] {
-  const groups: ScoreGroup[] = ["performance", "written"];
+  const groups: ScoreGroup[] = ["performance", "written", "oral"];
   return groups
     .map((group) => ({ group, items: items.filter((i) => toGroup(i.group) === group) }))
     .filter((g) => g.items.length > 0);

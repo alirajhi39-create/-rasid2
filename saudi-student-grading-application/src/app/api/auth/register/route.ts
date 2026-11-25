@@ -24,6 +24,7 @@ export async function POST(request: Request) {
       fullName?: string;
       username?: string;
       password?: string;
+      email?: string;
       schoolName?: string;
       administration?: string;
       headmasterName?: string;
@@ -52,6 +53,14 @@ export async function POST(request: Request) {
       );
     }
 
+    const email = (body.email ?? "").trim().toLowerCase() || null;
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+      return NextResponse.json(
+        { ok: false, error: "صيغة البريد الإلكتروني غير صحيحة" },
+        { status: 400 },
+      );
+    }
+
     const exists = await db.execute<{ id: number }>(
       sql`SELECT id FROM users WHERE lower(username) = ${username} LIMIT 1`,
     );
@@ -68,9 +77,14 @@ export async function POST(request: Request) {
     const role = isFirst ? "admin" : "teacher";
 
     const hash = await bcrypt.hash(password, 10);
-    const inserted = await db.execute<{ id: number; username: string; full_name: string; role: string }>(sql`
-      INSERT INTO users (username, password_hash, full_name, role)
-      VALUES (${username}, ${hash}, ${fullName}, ${role})
+    const inserted = await db.execute<{
+      id: number;
+      username: string;
+      full_name: string;
+      role: string;
+    }>(sql`
+      INSERT INTO users (username, email, password_hash, full_name, role)
+      VALUES (${username}, ${email}, ${hash}, ${fullName}, ${role})
       RETURNING id, username, full_name, role
     `);
     const user = inserted.rows?.[0];

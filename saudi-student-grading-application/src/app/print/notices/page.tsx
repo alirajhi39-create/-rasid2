@@ -17,7 +17,7 @@ import {
 } from "@/lib/grades";
 import { GROUP_LABEL, toGroup } from "@/lib/constants";
 import { SEMESTER_LABEL, toSemester } from "@/lib/constants";
-import type { GradeValues, ScoreItem } from "@/db/schema";
+import type { GradeValues, ScoreGroup, ScoreItem } from "@/db/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -133,10 +133,10 @@ export default async function PrintNoticesPage({
   const rows = rowsResult.rows ?? [];
 
   // نعرض مجموع كل مجموعة فقط (المهام الأدائية / التقويمات التحريرية)
-  const groupColumns = (["performance", "written"] as const)
+  const groupColumns = (["performance", "written", "oral"] as const)
     .map((g) => ({ group: g, list: items.filter((i) => toGroup(i.group) === g) }))
     .filter((g) => g.list.length > 0);
-  const groupMaxOf = (g: "performance" | "written") =>
+  const groupMaxOf = (g: ScoreGroup) =>
     groupColumns.find((x) => x.group === g)?.list.reduce((s, i) => s + i.max, 0) ?? 0;
 
   return (
@@ -160,7 +160,7 @@ export default async function PrintNoticesPage({
             const pct = totalMax > 0 ? (total / totalMax) * 100 : 0;
             const rating = getRating(total, totalMax, passingScore, ratingThresholds);
             const pAvg = periodAverage(items, values);
-            const groupGotOf = (g: "performance" | "written") => computeGroupTotal(items, values, g).got;
+            const groupGotOf = (g: ScoreGroup) => computeGroupTotal(items, values, g).got;
             const yT = yearTotal(
               semester === "first" ? { first: total, second: other } : { first: other, second: total },
             );
@@ -219,7 +219,7 @@ export default async function PrintNoticesPage({
                       const max = groupMaxOf(g.group);
                       const pct = max > 0 ? Math.round((got / max) * 100) : 0;
                       return (
-                        <tr key={g.group} className={g.group === "performance" ? "bg-sky-50" : "bg-violet-50"}>
+                        <tr key={g.group} className={g.group === "performance" ? "bg-sky-50" : g.group === "oral" ? "bg-teal-50" : "bg-violet-50"}>
                           <td className="border border-slate-400 px-2 py-1.5 tabular-nums">
                             {toArabicDigits(index + 1)}
                           </td>
@@ -313,6 +313,8 @@ export default async function PrintNoticesPage({
                 <SignaturesFooter
                   teacherName={settings.teacherName}
                   headmasterName={settings.headmasterName}
+          teacherSignature={settings.teacherSignature}
+          headmasterSignature={settings.headmasterSignature}
                   note="ولي أمر الطالب: يُرجى التوقيع بالعلم واستعادة الإشعار لمدرسة المادة."
                 />
               </div>

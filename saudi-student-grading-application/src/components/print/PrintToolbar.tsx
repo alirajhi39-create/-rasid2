@@ -23,6 +23,8 @@ export default function PrintToolbar({
   onOrientationChange,
   hideNid = false,
   supportsNid = true,
+  columns,
+  hiddenCols,
 }: {
   title: string;
   autoPrint?: boolean;
@@ -33,9 +35,14 @@ export default function PrintToolbar({
   hideNid?: boolean;
   /** هل هذه الصفحة تطبع السجل المدني أصلاً؟ */
   supportsNid?: boolean;
+  /** أعمدة الصفحة المتاحة لإظهارها/إخفائها */
+  columns?: { key: string; label: string }[];
+  /** الأعمدة المخفية حالياً */
+  hiddenCols?: string[];
 }) {
   const [dir, setDir] = useState<PrintOrientation>(orientation ?? "landscape");
   const [ready, setReady] = useState(false);
+  const [colsOpen, setColsOpen] = useState(false);
 
   useEffect(() => {
     setDir(orientation ?? getStoredOrientation());
@@ -69,6 +76,19 @@ export default function PrintToolbar({
     window.location.href = url.toString();
   };
 
+  const hidden = new Set(hiddenCols ?? []);
+
+  /** إظهار/إخفاء عمود — يُعاد رسم الصفحة من الخادم ليختفي فعلياً */
+  const toggleColumn = (key: string) => {
+    const url = new URL(window.location.href);
+    const next = new Set(hidden);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    if (next.size) url.searchParams.set("hideCols", [...next].join(","));
+    else url.searchParams.delete("hideCols");
+    window.location.href = url.toString();
+  };
+
   return (
     <div className="no-print sticky top-0 z-20 mb-4 border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -98,6 +118,59 @@ export default function PrintToolbar({
             >
               {hideNid ? "🙈 إخفاء السجل المدني (مفعّل)" : "👁 إظهار السجل المدني"}
             </button>
+          )}
+
+          {/* اختيار الأعمدة */}
+          {columns && columns.length > 0 && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setColsOpen((v) => !v)}
+                className={`rounded-xl px-3 py-2 text-xs font-bold transition ${
+                  hidden.size
+                    ? "bg-amber-100 text-amber-800 hover:bg-amber-200"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                🗂 أعمدة الطباعة {hidden.size ? `(${hidden.size} مخفية)` : ""}
+              </button>
+              {colsOpen && (
+                <div className="absolute left-0 top-full z-30 mt-1 w-60 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                  <p className="mb-1.5 px-1 text-[11px] font-bold text-slate-500">
+                    أختر الأعمدة التي تريد طباعتها
+                  </p>
+                  <label className="mb-1.5 flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1.5 text-[11px] font-bold text-slate-600">
+                    <span>رقم / اسم الطالب</span>
+                    <span className="text-[10px] text-slate-400">ثابت</span>
+                  </label>
+                  {columns.map((col) => (
+                    <label
+                      key={col.key}
+                      className="flex cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <span>{col.label}</span>
+                      <input
+                        type="checkbox"
+                        checked={!hidden.has(col.key)}
+                        onChange={() => toggleColumn(col.key)}
+                        className="h-4 w-4 accent-brand-600"
+                      />
+                    </label>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = new URL(window.location.href);
+                      url.searchParams.delete("hideCols");
+                      window.location.href = url.toString();
+                    }}
+                    className="mt-1.5 w-full rounded-lg bg-slate-100 px-2 py-1.5 text-[11px] font-bold text-slate-600 hover:bg-slate-200"
+                  >
+                    إظهار الكل
+                  </button>
+                </div>
+              )}
+            </div>
           )}
 
           {/* مبدّل الاتجاه */}

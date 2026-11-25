@@ -30,9 +30,11 @@ type Settings = {
   pctVgood: number;
   pctGood: number;
   pctPass: number;
+  teacherSignature: string | null;
+  headmasterSignature: string | null;
 };
 
-type Me = { uid: number; username: string; fullName: string; role: string };
+type Me = { uid: number; username: string; fullName: string; role: string; email?: string | null };
 
 type Teacher = {
   id: number;
@@ -56,6 +58,8 @@ const EMPTY: Settings = {
   pctVgood: 80,
   pctGood: 65,
   pctPass: 50,
+  teacherSignature: null,
+  headmasterSignature: null,
 };
 
 export default function SettingsPage() {
@@ -69,6 +73,7 @@ export default function SettingsPage() {
   // بيانات الحساب
   const [accName, setAccName] = useState("");
   const [accUsername, setAccUsername] = useState("");
+  const [accEmail, setAccEmail] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -82,6 +87,7 @@ export default function SettingsPage() {
   const [adding, setAdding] = useState(false);
 
   const [dbInfo, setDbInfo] = useState<{ tables: string[]; provider: string; userCount: number } | null>(null);
+  const [emailConfigured, setEmailConfigured] = useState<boolean | null>(null);
 
   const pushToast = useCallback((kind: ToastItem["kind"], text: string) => {
     const id = Date.now() + Math.random();
@@ -91,9 +97,14 @@ export default function SettingsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await apiFetch<{ settings: Settings }>("/api/settings");
-    if (res.ok && res.data?.settings) setSettings({ ...EMPTY, ...res.data.settings });
-    else if (res.error) pushToast("error", res.error);
+    const res = await apiFetch<{ settings: Settings; emailConfigured?: boolean }>(
+      "/api/settings",
+    );
+    if (res.ok && res.data?.settings) {
+      setSettings({ ...EMPTY, ...res.data.settings });
+      if (typeof res.data.emailConfigured === "boolean")
+        setEmailConfigured(res.data.emailConfigured);
+    } else if (res.error) pushToast("error", res.error);
     setLoading(false);
   }, [pushToast]);
 
@@ -104,6 +115,7 @@ export default function SettingsPage() {
       setMe(user);
       setAccName(user.fullName);
       setAccUsername(user.username);
+      setAccEmail(user.email ?? "");
     }
   }, []);
 
@@ -151,6 +163,7 @@ export default function SettingsPage() {
       body: JSON.stringify({
         fullName: accName,
         username: accUsername,
+        email: accEmail,
         currentPassword,
         newPassword,
       }),
@@ -238,8 +251,69 @@ export default function SettingsPage() {
     }
   };
 
-  const field = (key: keyof Settings) => ({
-    value: settings[key],
+  /* ---------------------- توقيعات مرفوعة كصور ---------------------- */
+  const sigRef = useRef<HTMLInputElement>(null);
+  const [sigTarget, setSigTarget] = useState<"teacherSignature" | "headmasterSignature">(
+    "teacherSignature",
+  );
+
+  /** تصغير الصورة في المتصفح قبل الرفع (لتقليل حجم القاعدة) */
+  const readAndResize = (file: File, maxWidth = 600): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("قراءة الملف"));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("صورة غير صالحة"));
+        img.onload = () => {
+          const scale = Math.min(1, maxWidth / img.width);
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            reject(new Error("تعذر معالجة الصورة"));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL("image/png", 0.9));
+        };
+        img.src = String(reader.result);
+      };
+      reader.readAsDataURL(file);
+    });
+
+  const uploadSignature = async (file: File) => {
+    try {
+      const dataUrl = await readAndResize(file, 600);
+      const res = await apiFetch("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({ [sigTarget]: dataUrl }),
+      });
+      if (res.ok) {
+        setSettings((prev) => ({ ...prev, [sigTarget]: dataUrl }));
+        pushToast("success", "تم حفظ التوقيع");
+      } else pushToast("error", res.error ?? "تعذر حفظ التوقيع");
+    } catch {
+      pushToast("error", "تعذر قراءة الصورة");
+    } finally {
+      if (sigRef.current) sigRef.current.value = "";
+    }
+  };
+
+  const clearSignature = async (key: "teacherSignature" | "headmasterSignature") => {
+    const res = await apiFetch("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({ [key]: "" }),
+    });
+    if (res.ok) {
+      setSettings((prev) => ({ ...prev, [key]: null }));
+      pushToast("success", "تم مسح التوقيع");
+    } else pushToast("error", res.error ?? "تعذر المسح");
+  };
+
+  const field = <K extends keyof Settings>(key: K) => ({
+    value: settings[key] as Exclude<Settings[K], null>,
     onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       setSettings((prev) => ({ ...prev, [key]: e.target.value })),
   });
@@ -400,6 +474,40 @@ export default function SettingsPage() {
         </Alert>
       </Card>
 
+      {/* حالة إرسال البريد */}
+      <div
+        className={`rounded-2xl border p-4 text-sm leading-6 ${
+          emailConfigured === false
+            ? "border-amber-300 bg-amber-50 text-amber-900"
+            : emailConfigured === true
+              ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+              : "border-slate-200 bg-slate-50 text-slate-600"
+        }`}
+      >
+        <p className="font-extrabold">
+          {emailConfigured === false
+            ? "⚠️ إرسال البريد الإلكتروني غير مُفعّل"
+            : emailConfigured === true
+              ? "✅ إرسال البريد الإلكتروني مُفعّل"
+              : "… جارٍ فحص إعدادات البريد"}
+        </p>
+        {emailConfigured === false && (
+          <p className="mt-1 text-[12px]">
+            لإرسال روابط استعادة كلمة المرور فعلياً، أضف متغير البيئة{" "}
+            <code dir="ltr" className="rounded bg-white px-1 font-mono text-[11px] font-bold">
+              RESEND_API_KEY
+            </code>{" "}
+            من لوحة Vercel (Resend — الخطة المجانية تكفي). بدونه لن تُرسل أي رسالة، لكن يبقى التطبيق
+            يعمل بالكامل.
+          </p>
+        )}
+        {emailConfigured === true && (
+          <p className="mt-1 text-[12px]">
+            يُرسل رابط الاستعادة إلى البريد المسجل لكل حساب خلال ٣٠ دقيقة من صلاحيته.
+          </p>
+        )}
+      </div>
+
       {/* بيانات الحساب */}
       <Card
         title="حسابي الشخصي"
@@ -412,6 +520,17 @@ export default function SettingsPage() {
           <Field label="اسم المعلم (الاسم الكامل)" hint="يظهر في الكشوف الرسمية والترويسة">
             <Input value={accName} onChange={(e) => setAccName(e.target.value)} />
           </Field>
+          <Field label="البريد الإلكتروني" hint="لرسائل استعادة كلمة المرور">
+            <Input
+              type="email"
+              dir="ltr"
+              className="text-right"
+              value={accEmail}
+              onChange={(e) => setAccEmail(e.target.value)}
+              placeholder="teacher@school.edu.sa"
+            />
+          </Field>
+
           <Field label="اسم المستخدم" hint="بالإنجليزية — يستخدم للدخول">
             <Input
               dir="ltr"
@@ -550,6 +669,82 @@ export default function SettingsPage() {
           </Alert>
         </Card>
       )}
+
+      {/* التوقيعات */}
+      <Card
+        title="توقيعات الصور"
+        subtitle="ارفع توقيع المعلم ومدير المدرسة ليظهر في نموذج التوقيع بالكشوف والإشعارات"
+        action={<Badge tone="brand">صور PNG / JPG</Badge>}
+      >
+        <input
+          ref={sigRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void uploadSignature(file);
+          }}
+        />
+        <div className="grid gap-3 sm:grid-cols-2">
+          {[
+            {
+              key: "teacherSignature" as const,
+              label: "توقيع المعلم",
+              hint: "يظهر أعلى اسم معلم المادة",
+            },
+            {
+              key: "headmasterSignature" as const,
+              label: "توقيع مدير المدرسة",
+              hint: "يظهر أعلى اسم مدير المدرسة",
+            },
+          ].map((item) => {
+            const value = settings[item.key];
+            return (
+              <div
+                key={item.key}
+                className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3 text-right"
+              >
+                <p className="text-xs font-extrabold text-slate-700">{item.label}</p>
+                <p className="mt-0.5 text-[10px] text-slate-500">{item.hint}</p>
+                <div className="mt-2 grid h-20 place-items-center rounded-xl border border-dashed border-slate-300 bg-white">
+                  {value ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={value} alt={item.label} className="max-h-16 object-contain" />
+                  ) : (
+                    <span className="text-[11px] text-slate-400">لا يوجد توقيع مرفوع</span>
+                  )}
+                </div>
+                <div className="mt-2 flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSigTarget(item.key);
+                      sigRef.current?.click();
+                    }}
+                    className="flex-1 rounded-lg bg-brand-600 px-2 py-1.5 text-[11px] font-bold text-white transition hover:bg-brand-700"
+                  >
+                    {value ? "استبدال" : "رفع صورة"}
+                  </button>
+                  {value && (
+                    <button
+                      type="button"
+                      onClick={() => void clearSignature(item.key)}
+                      className="rounded-lg bg-rose-50 px-2 py-1.5 text-[11px] font-bold text-rose-600 transition hover:bg-rose-100"
+                    >
+                      مسح
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <Alert kind="info" className="mt-4">
+          تُصغَّر الصورة تلقائياً إلى ٦٠٠ بكسل عرضاً قبل الحفظ. فعّل «رسومات الخلفية» عند الطباعة
+          لظهور التوقيع.
+        </Alert>
+      </Card>
 
       {/* النسخ الاحتياطي */}
       <Card

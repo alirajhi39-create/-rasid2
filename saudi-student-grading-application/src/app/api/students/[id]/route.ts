@@ -27,6 +27,7 @@ export async function PUT(request: Request, { params }: Params) {
     nationalId?: string | null;
     classroomId?: number;
     classNumber?: number | null;
+    guardianPhone?: string;
     notes?: string | null;
   };
 
@@ -41,6 +42,10 @@ export async function PUT(request: Request, { params }: Params) {
   }
 
   const nationalId = (body.nationalId ?? "").trim() || null;
+  const guardianPhone =
+    body.guardianPhone === undefined
+      ? null
+      : String(body.guardianPhone).replace(/[^\d+]/g, "").slice(0, 20) || null;
   const classNumber =
     body.classNumber === null || body.classNumber === undefined
       ? null
@@ -49,6 +54,7 @@ export async function PUT(request: Request, { params }: Params) {
   await db.execute(
     sql`UPDATE students SET full_name = ${fullName}, national_id = ${nationalId},
         classroom_id = ${classroomId}, class_number = ${classNumber},
+        guardian_phone = ${guardianPhone},
         notes = ${body.notes ?? null}
         WHERE id = ${studentId}`,
   );

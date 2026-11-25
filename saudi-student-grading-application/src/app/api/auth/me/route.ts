@@ -19,8 +19,9 @@ export async function GET() {
       username: string;
       full_name: string;
       role: string;
+      email: string | null;
     }>(
-      sql`SELECT id, username, full_name, role FROM users WHERE id = ${session.uid} LIMIT 1`,
+      sql`SELECT id, username, full_name, role, email FROM users WHERE id = ${session.uid} LIMIT 1`,
     );
     const user = result.rows?.[0];
     if (!user) return NextResponse.json({ ok: false, user: null }, { status: 401 });
@@ -32,6 +33,7 @@ export async function GET() {
         username: user.username,
         fullName: user.full_name,
         role: user.role,
+        email: user.email,
       },
     });
   } catch {
@@ -42,6 +44,7 @@ export async function GET() {
         username: session.username,
         fullName: session.fullName,
         role: session.role,
+        email: null,
       },
     });
   }

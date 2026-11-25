@@ -97,6 +97,7 @@ export const ITEM_KINDS: { value: ScoreItemKind; label: string; icon: string; gr
   { value: "quiz", label: "اختبار قصير", icon: "⚡", group: "performance" },
   { value: "custom", label: "خانة مخصصة", icon: "➕", group: "performance" },
   { value: "written", label: "تقويم تحريري", icon: "🗒️", group: "written" },
+  { value: "oral", label: "تقويم شفهي", icon: "🗣️", group: "oral" },
 ];
 
 export const KIND_LABEL: Record<ScoreItemKind, string> = ITEM_KINDS.reduce(
@@ -138,20 +139,33 @@ export const GROUPS: {
     bg: "bg-violet-50",
     text: "text-violet-800",
   },
+  {
+    value: "oral",
+    label: "التقويمات التحريرية والشفوية",
+    targetMax: 0,
+    hint: "التقويمات الشفوية والتحريرية المدمجة — الدرجة حسب أعمدتك (معادلة جزءاً من التحريرية)",
+    tone: "teal",
+    ring: "ring-teal-200",
+    bg: "bg-teal-50",
+    text: "text-teal-800",
+  },
 ];
 
 export const GROUP_LABEL: Record<ScoreGroup, string> = {
   performance: "المهام الأدائية",
   written: "التقويمات التحريرية",
+  oral: "التقويمات التحريرية والشفوية",
 };
 
 export const GROUP_TARGET: Record<ScoreGroup, number> = {
   performance: 40,
   written: 60,
+  oral: 0, // بلا هدف ثابت — الدرجة حسب أعمدتك
 };
 
 /** تحويل آمن لقيمة المجموعة (بيانات قديمة year/final) */
 export function toGroup(value: string | null | undefined): ScoreGroup {
+  if (value === "oral") return "oral";
   if (value === "written" || value === "final") return "written";
   return "performance";
 }

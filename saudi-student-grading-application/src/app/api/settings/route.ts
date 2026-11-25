@@ -19,6 +19,8 @@ const FIELDS = [
   "pct_vgood",
   "pct_good",
   "pct_pass",
+  "teacher_signature",
+  "headmaster_signature",
 ] as const;
 
 type SettingsShape = {
@@ -34,6 +36,8 @@ type SettingsShape = {
   pctVgood: number;
   pctGood: number;
   pctPass: number;
+  teacherSignature: string | null;
+  headmasterSignature: string | null;
 };
 
 const CAMEL: Record<(typeof FIELDS)[number], keyof SettingsShape> = {
@@ -48,6 +52,8 @@ const CAMEL: Record<(typeof FIELDS)[number], keyof SettingsShape> = {
   pct_vgood: "pctVgood",
   pct_good: "pctGood",
   pct_pass: "pctPass",
+  teacher_signature: "teacherSignature",
+  headmaster_signature: "headmasterSignature",
 };
 
 /* حدود النِّسب المئوية للتقديرات (ممتاز / جيد جداً / جيد / مقبول) */
@@ -76,6 +82,9 @@ function toSettingsShape(row: Record<string, unknown> | undefined): SettingsShap
     pctVgood: num(row?.pct_vgood, 80),
     pctGood: num(row?.pct_good, 65),
     pctPass: num(row?.pct_pass, 50),
+    teacherSignature: typeof row?.teacher_signature === "string" ? row.teacher_signature : null,
+    headmasterSignature:
+      typeof row?.headmaster_signature === "string" ? row.headmaster_signature : null,
   };
 }
 
@@ -108,7 +117,12 @@ export async function GET() {
       },
     });
   }
-  return NextResponse.json({ ok: true, settings: toSettingsShape(raw) });
+  return NextResponse.json({
+    ok: true,
+    settings: toSettingsShape(raw),
+    emailConfigured: Boolean(process.env.RESEND_API_KEY),
+    emailProvider: process.env.RESEND_API_KEY ? "Resend" : null,
+  });
 }
 
 export async function PUT(request: Request) {
@@ -130,7 +144,33 @@ export async function PUT(request: Request) {
         if (field === "administration") updates.push(`${field} = ''`);
         continue;
       }
+      // الصور (base64) تُتحقق من الحجم وتحفظ كنص خام
+      if (field === "teacher_signature" || field === "headmaster_signature") {
+        if (!clean.startsWith("data:image/")) {
+          return NextResponse.json(
+            { ok: false, error: "التوقيع يجب أن يكون صورة صالحة (PNG أو JPG)" },
+            { status: 400 },
+          );
+        }
+        if (clean.length > 600_000) {
+          return NextResponse.json(
+            { ok: false, error: "حجم صورة التوقيع كبير — تصغّرها إلى ٦٠٠ بكسل عرضاً كحد أقصى" },
+            { status: 400 },
+          );
+        }
+        updates.push(`${field} = '${clean.replace(/'/g, "''")}'`);
+        continue;
+      }
+
       updates.push(`${field} = '${clean.replace(/'/g, "''")}'`);
+    }
+
+    // السماح بمسح التوقيع (إفراغ الحقل)
+    for (const field of ["teacher_signature", "headmaster_signature"] as const) {
+      const raw = body[CAMEL[field]];
+      if (typeof raw === "string" && raw.trim() === "") {
+        updates.push(`${field} = NULL`);
+      }
     }
     // حدود النِّسب: تُتحقَّق منطقياً وتُرتَّب تصاعدياً
     const pctValues: Record<string, number> = {};

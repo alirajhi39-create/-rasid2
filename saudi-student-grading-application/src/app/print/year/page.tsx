@@ -260,6 +260,8 @@ export default async function PrintYearPage({
         <SignaturesFooter
           teacherName={settings.teacherName}
           headmasterName={settings.headmasterName}
+          teacherSignature={settings.teacherSignature}
+          headmasterSignature={settings.headmasterSignature}
           note="يشمل هذا الكشف مجموع الفصلين الدراسيين الأول والثاني والمتوسط بينهما لكل طالب."
         />
 

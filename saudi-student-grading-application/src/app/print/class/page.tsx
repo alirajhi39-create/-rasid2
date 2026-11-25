@@ -19,7 +19,7 @@ import {
 } from "@/lib/grades";
 import { GROUP_LABEL, toGroup } from "@/lib/constants";
 import { SEMESTER_LABEL, toSemester } from "@/lib/constants";
-import type { GradeValues, ScoreItem } from "@/db/schema";
+import type { GradeValues, ScoreGroup, ScoreItem } from "@/db/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -48,12 +48,27 @@ type Row = {
 export default async function PrintClassPage({
   searchParams,
 }: {
-  searchParams: Promise<{ subjectId?: string; semester?: string; hideNid?: string }>;
+  searchParams: Promise<{ subjectId?: string; semester?: string; hideNid?: string; hideCols?: string }>;
 }) {
   const params = await searchParams;
   const subjectId = Number(params.subjectId);
   const semester = toSemester(params.semester);
   const hideNid = params.hideNid === "1";
+  const hiddenCols = (params.hideCols ?? "")
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean);
+  const showCol = (key: string) => !hiddenCols.includes(key);
+  const PRINT_COLUMNS = [
+    { key: "sum", label: "المجموع" },
+    { key: "periodAvg", label: "متوسط الفترتين" },
+    { key: "pct", label: "النسبة %" },
+    { key: "rating", label: "التقدير" },
+    { key: "other", label: "الفصل الآخر" },
+    { key: "yearTotal", label: "مجموع الفصلين" },
+    { key: "yearAvg", label: "متوسط الفصلين" },
+    { key: "result", label: "النتيجة" },
+  ];
 
   const session = await getSession();
   if (!session) {
@@ -137,7 +152,7 @@ export default async function PrintClassPage({
 
   const stats = statsFor(rows.map((r) => ({ total: semTotal(r) })), totalMax, passingScore);
 
-  const groupColumns = (["performance", "written"] as const)
+  const groupColumns = (["performance", "written", "oral"] as const)
     .map((g) => ({ group: g, list: items.filter((i) => toGroup(i.group) === g) }))
     .filter((g) => g.list.length > 0);
 
@@ -150,9 +165,9 @@ export default async function PrintClassPage({
     ? round2(rows.reduce((s, r) => s + periodAverage(items, semValues(r)), 0) / rows.length)
     : 0;
   // مجموع كل مجموعة لكل طالب (المهام الأدائية / التقويمات التحريرية)
-  const groupGot = (row: Row, group: "performance" | "written") =>
+  const groupGot = (row: Row, group: ScoreGroup) =>
     computeGroupTotal(items, semValues(row), group).got;
-  const groupMaxOf = (group: "performance" | "written") =>
+  const groupMaxOf = (group: ScoreGroup) =>
     groupColumns.find((g) => g.group === group)?.list.reduce((s, i) => s + i.max, 0) ?? 0;
 
   const avgMean = rows.length
@@ -169,6 +184,8 @@ export default async function PrintClassPage({
       <PrintToolbar
         title={`كشف درجات — ${meta.subject_name} — ${SEMESTER_LABEL[semester]}`}
         hideNid={hideNid}
+        columns={PRINT_COLUMNS}
+        hiddenCols={hiddenCols}
       />
 
       <div className="print-area print-page rounded-2xl bg-white p-6 shadow-lg sm:p-8">
@@ -199,7 +216,7 @@ export default async function PrintClassPage({
                 <th
                   key={g.group}
                   className={`border border-slate-500 px-1.5 py-2 text-[10.5pt] ${
-                    g.group === "performance" ? "bg-sky-100" : "bg-violet-100"
+                    g.group === "performance" ? "bg-sky-100" : g.group === "oral" ? "bg-teal-100" : "bg-violet-100"
                   }`}
                 >
                   {GROUP_LABEL[g.group]}
@@ -209,30 +226,30 @@ export default async function PrintClassPage({
                   </span>
                 </th>
               ))}
-              <th className="border border-slate-500 px-1 py-1.5">
-                المجموع ({toArabicDigits(totalMax)})
-              </th>
-              <th className="border border-slate-500 px-1 py-1.5">
-                متوسط الفترتين
-              </th>
-              <th className="border border-slate-500 px-1 py-1.5">
-                %
-              </th>
-              <th className="border border-slate-500 px-1 py-1.5">
-                التقدير
-              </th>
-              <th className="border border-slate-500 px-1 py-1.5">
-                الفصل الآخر
-              </th>
-              <th className="border border-slate-500 bg-slate-200 px-1 py-1.5">
-                مجموع الفصلين
-              </th>
-              <th className="border border-slate-500 bg-slate-200 px-1 py-1.5">
-                المتوسط
-              </th>
-              <th className="border border-slate-500 px-1 py-1.5">
-                النتيجة
-              </th>
+              {showCol("sum") && (
+                <th className="border border-slate-500 px-1 py-1.5">
+                  المجموع ({toArabicDigits(totalMax)})
+                </th>
+              )}
+              {showCol("periodAvg") && (
+                <th className="border border-slate-500 px-1 py-1.5">متوسط الفترتين</th>
+              )}
+              {showCol("pct") && <th className="border border-slate-500 px-1 py-1.5">%</th>}
+              {showCol("rating") && (
+                <th className="border border-slate-500 px-1 py-1.5">التقدير</th>
+              )}
+              {showCol("other") && (
+                <th className="border border-slate-500 px-1 py-1.5">الفصل الآخر</th>
+              )}
+              {showCol("yearTotal") && (
+                <th className="border border-slate-500 bg-slate-200 px-1 py-1.5">مجموع الفصلين</th>
+              )}
+              {showCol("yearAvg") && (
+                <th className="border border-slate-500 bg-slate-200 px-1 py-1.5">المتوسط</th>
+              )}
+              {showCol("result") && (
+                <th className="border border-slate-500 px-1 py-1.5">النتيجة</th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -268,39 +285,55 @@ export default async function PrintClassPage({
                       <td
                         key={g.group}
                         className={`border border-slate-400 px-1 py-1 font-extrabold tabular-nums ${
-                          g.group === "performance" ? "bg-sky-50" : "bg-violet-50"
+                          g.group === "performance" ? "bg-sky-50" : g.group === "oral" ? "bg-teal-50" : "bg-violet-50"
                         }`}
                       >
                         {got > 0 ? toArabicDigits(got) : "—"}
                       </td>
                     );
                   })}
-                  <td className="border border-slate-400 px-1 py-1 font-extrabold tabular-nums">
-                    {toArabicDigits(total)}
-                  </td>
-                  <td className="border border-slate-400 px-1 py-1 font-bold tabular-nums">
-                    {pAvg > 0 ? toArabicDigits(pAvg) : "—"}
-                  </td>
-                  <td className="border border-slate-400 px-1 py-1 tabular-nums">
-                    {totalMax > 0 ? `${toArabicDigits(Math.round(pct))}%` : "—"}
-                  </td>
-                  <td className="border border-slate-400 px-1 py-1">{rating.label}</td>
-                  <td className="border border-slate-400 px-1 py-1 tabular-nums">
-                    {other > 0 ? toArabicDigits(other) : "—"}
-                  </td>
-                  <td className="border border-slate-400 bg-slate-50 px-1 py-1 font-extrabold tabular-nums">
-                    {yT > 0 ? toArabicDigits(yT) : "—"}
-                  </td>
-                  <td className="border border-slate-400 bg-slate-50 px-1 py-1 font-bold tabular-nums">
-                    {yA > 0 ? toArabicDigits(yA) : "—"}
-                  </td>
-                  <td
-                    className={`border border-slate-400 px-1 py-1 font-bold ${
-                      total === 0 ? "" : rating.passed ? "text-emerald-700" : "text-rose-700"
-                    }`}
-                  >
-                    {total === 0 ? "—" : rating.passed ? "ناجح" : "راسب"}
-                  </td>
+                  {showCol("sum") && (
+                    <td className="border border-slate-400 px-1 py-1 font-extrabold tabular-nums">
+                      {toArabicDigits(total)}
+                    </td>
+                  )}
+                  {showCol("periodAvg") && (
+                    <td className="border border-slate-400 px-1 py-1 font-bold tabular-nums">
+                      {pAvg > 0 ? toArabicDigits(pAvg) : "—"}
+                    </td>
+                  )}
+                  {showCol("pct") && (
+                    <td className="border border-slate-400 px-1 py-1 tabular-nums">
+                      {totalMax > 0 ? `${toArabicDigits(Math.round(pct))}%` : "—"}
+                    </td>
+                  )}
+                  {showCol("rating") && (
+                    <td className="border border-slate-400 px-1 py-1">{rating.label}</td>
+                  )}
+                  {showCol("other") && (
+                    <td className="border border-slate-400 px-1 py-1 tabular-nums">
+                      {other > 0 ? toArabicDigits(other) : "—"}
+                    </td>
+                  )}
+                  {showCol("yearTotal") && (
+                    <td className="border border-slate-400 bg-slate-50 px-1 py-1 font-extrabold tabular-nums">
+                      {yT > 0 ? toArabicDigits(yT) : "—"}
+                    </td>
+                  )}
+                  {showCol("yearAvg") && (
+                    <td className="border border-slate-400 bg-slate-50 px-1 py-1 font-bold tabular-nums">
+                      {yA > 0 ? toArabicDigits(yA) : "—"}
+                    </td>
+                  )}
+                  {showCol("result") && (
+                    <td
+                      className={`border border-slate-400 px-1 py-1 font-bold ${
+                        total === 0 ? "" : rating.passed ? "text-emerald-700" : "text-rose-700"
+                      }`}
+                    >
+                      {total === 0 ? "—" : rating.passed ? "ناجح" : "راسب"}
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -318,32 +351,51 @@ export default async function PrintClassPage({
                   <td
                     key={g.group}
                     className={`border border-slate-500 px-1 py-1.5 tabular-nums ${
-                      g.group === "performance" ? "bg-sky-50" : "bg-violet-50"
+                      g.group === "performance" ? "bg-sky-50" : g.group === "oral" ? "bg-teal-50" : "bg-violet-50"
                     }`}
                   >
                     {toArabicDigits(avg)}
                   </td>
                 );
               })}
-              <td className="border border-slate-500 px-1 py-1.5 tabular-nums">
-                {toArabicDigits(stats.avg)}
-              </td>
-              <td className="border border-slate-500 px-1 py-1.5 tabular-nums">
-                {avgPeriodMean > 0 ? toArabicDigits(avgPeriodMean) : "—"}
-              </td>
-              <td className="border border-slate-500 px-1 py-1.5 tabular-nums">
-                {toArabicDigits(stats.pct)}%
-              </td>
-              <td colSpan={2} className="border border-slate-500 px-1 py-1.5">
-                متوسط الفصلين: {toArabicDigits(avgMean)}
-              </td>
-              <td className="border border-slate-500 px-1 py-1.5 tabular-nums">{toArabicDigits(avgYear)}</td>
-              <td className="border border-slate-500 px-1 py-1.5 tabular-nums">
-                {toArabicDigits(avgMean)}
-              </td>
-              <td className="border border-slate-500 px-1 py-1.5">
-                من {toArabicDigits(yearMaxValue)}
-              </td>
+              {showCol("sum") && (
+                <td className="border border-slate-500 px-1 py-1.5 tabular-nums">
+                  {toArabicDigits(stats.avg)}
+                </td>
+              )}
+              {showCol("periodAvg") && (
+                <td className="border border-slate-500 px-1 py-1.5 tabular-nums">
+                  {avgPeriodMean > 0 ? toArabicDigits(avgPeriodMean) : "—"}
+                </td>
+              )}
+              {showCol("pct") && (
+                <td className="border border-slate-500 px-1 py-1.5 tabular-nums">
+                  {toArabicDigits(stats.pct)}%
+                </td>
+              )}
+              {(showCol("rating") || showCol("other")) && (
+                <td
+                  colSpan={(showCol("rating") ? 1 : 0) + (showCol("other") ? 1 : 0)}
+                  className="border border-slate-500 px-1 py-1.5"
+                >
+                  متوسط الفصلين: {toArabicDigits(avgMean)}
+                </td>
+              )}
+              {showCol("yearTotal") && (
+                <td className="border border-slate-500 px-1 py-1.5 tabular-nums">
+                  {toArabicDigits(avgYear)}
+                </td>
+              )}
+              {showCol("yearAvg") && (
+                <td className="border border-slate-500 px-1 py-1.5 tabular-nums">
+                  {toArabicDigits(avgMean)}
+                </td>
+              )}
+              {showCol("result") && (
+                <td className="border border-slate-500 px-1 py-1.5">
+                  من {toArabicDigits(yearMaxValue)}
+                </td>
+              )}
             </tr>
           </tbody>
         </table>
@@ -351,6 +403,8 @@ export default async function PrintClassPage({
         <SignaturesFooter
           teacherName={settings.teacherName}
           headmasterName={settings.headmasterName}
+          teacherSignature={settings.teacherSignature}
+          headmasterSignature={settings.headmasterSignature}
           note="يُعتمد هذا الكشف بعد مراجعته وتوقيعه من معلم المادة ومدير المدرسة."
         />
 

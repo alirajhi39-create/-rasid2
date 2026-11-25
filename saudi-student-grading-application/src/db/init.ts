@@ -38,6 +38,7 @@ export async function initDatabase() {
     CREATE TABLE IF NOT EXISTS users (
       id serial PRIMARY KEY,
       username text NOT NULL,
+      email text,
       password_hash text NOT NULL,
       full_name text NOT NULL DEFAULT 'معلم المادة',
       role text NOT NULL DEFAULT 'teacher',
@@ -63,8 +64,12 @@ export async function initDatabase() {
       pct_vgood integer NOT NULL DEFAULT 80,
       pct_good integer NOT NULL DEFAULT 65,
       pct_pass integer NOT NULL DEFAULT 50,
+      teacher_signature text,
+      headmaster_signature text,
       updated_at timestamptz NOT NULL DEFAULT now()
     )`);
+  await runRawSafe(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS teacher_signature text`);
+  await runRawSafe(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS headmaster_signature text`);
   await runRawSafe(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS pct_excellent integer NOT NULL DEFAULT 90`);
   await runRawSafe(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS pct_vgood integer NOT NULL DEFAULT 80`);
   await runRawSafe(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS pct_good integer NOT NULL DEFAULT 65`);
@@ -109,10 +114,12 @@ export async function initDatabase() {
       national_id text,
       classroom_id integer NOT NULL REFERENCES classrooms(id) ON DELETE CASCADE,
       class_number integer,
+      guardian_phone text,
       notes text,
       active boolean NOT NULL DEFAULT true,
       created_at timestamptz NOT NULL DEFAULT now()
     )`);
+  await runRawSafe(`ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_phone text`);
   await runRaw(
     `CREATE UNIQUE INDEX IF NOT EXISTS students_classroom_number_unique ON students (classroom_id, class_number)`,
   );
@@ -178,6 +185,20 @@ export async function initDatabase() {
     ) WHERE jsonb_typeof(items) = 'array' AND jsonb_array_length(items) > 0`);
   steps.push("subjects");
 
+  /* ------------------- password_resets ------------------- */
+  await runRaw(`
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id serial PRIMARY KEY,
+      user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash text NOT NULL,
+      expires_at timestamptz NOT NULL,
+      used_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`);
+  await runRaw(`CREATE INDEX IF NOT EXISTS password_resets_user_idx ON password_resets (user_id)`);
+  await runRawSafe(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email text`);
+  await runRaw(`CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique ON users (email) WHERE email IS NOT NULL`);
+
   /* ----------------------- grades ----------------------- */
   // درجة مستقلة لكل فصل دراسي (فصلان رأسيان فقط)
   await runRaw(`
@@ -235,14 +256,25 @@ export async function initDatabase() {
   }
 
   // 3) فصل + مادة نموذجية للتجربة السريعة
+  //    لا نزرع أي بيانات قبل وجود معلم — لأن classrooms.user_id يشير إلى users(id)
+  //    (في القاعدة الجديدة الفارغة لا يوجد مستخدم، ففشل الزرع كان يُفشل التهيئة كلها)
   const classroomCount = await db.execute<{ count: string }>(
     sql`SELECT count(*)::text AS count FROM classrooms`,
   );
-  if (Number(classroomCount.rows?.[0]?.count ?? "0") === 0) {
-    const inserted = await db.execute<{ id: number }>(
-      sql`INSERT INTO classrooms (grade, section, stage) VALUES (${"السادس"}, ${"أ"}, ${"ابتدائي"}) RETURNING id`,
-    );
-    const classroomId = inserted.rows?.[0]?.id;
+  const canSeed = Number(userCountValue) > 0 && Number(classroomCount.rows?.[0]?.count ?? "0") === 0;
+  if (canSeed) {
+    let classroomId: number | undefined;
+    try {
+      const inserted = await db.execute<{ id: number }>(
+        sql`INSERT INTO classrooms (grade, section, stage, user_id)
+            VALUES (${"السادس"}, ${"أ"}, ${"ابتدائي"},
+                    (SELECT id FROM users ORDER BY id LIMIT 1))
+            RETURNING id`,
+      );
+      classroomId = inserted.rows?.[0]?.id;
+    } catch {
+      classroomId = undefined;
+    }
     if (classroomId) {
       await db.execute(
         sql`INSERT INTO subjects (name, classroom_id, items, total_max, passing_score)

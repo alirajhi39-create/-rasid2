@@ -34,6 +34,7 @@ type Student = {
   national_id: string | null;
   classroom_id: number;
   class_number: number | null;
+  guardian_phone: string | null;
   notes: string | null;
   active: boolean;
   grade: string;
@@ -62,6 +63,7 @@ export default function StudentsPage() {
     fullName: "",
     nationalId: "",
     classNumber: "",
+    guardianPhone: "",
     notes: "",
     classroomId: 0,
   });
@@ -158,7 +160,14 @@ export default function StudentsPage() {
   function openNewStudent() {
     const target = activeClass === "all" ? (classrooms[0]?.id ?? 0) : activeClass;
     setEditingStudent(null);
-    setStudentForm({ fullName: "", nationalId: "", classNumber: "", notes: "", classroomId: target });
+    setStudentForm({
+      fullName: "",
+      nationalId: "",
+      classNumber: "",
+      guardianPhone: "",
+      notes: "",
+      classroomId: target,
+    });
     setStudentModal(true);
   }
 
@@ -168,6 +177,7 @@ export default function StudentsPage() {
       fullName: student.full_name,
       nationalId: student.national_id ?? "",
       classNumber: student.class_number ? String(student.class_number) : "",
+      guardianPhone: student.guardian_phone ?? "",
       notes: student.notes ?? "",
       classroomId: student.classroom_id,
     });
@@ -179,6 +189,7 @@ export default function StudentsPage() {
       fullName: studentForm.fullName,
       nationalId: studentForm.nationalId,
       classNumber: studentForm.classNumber === "" ? null : Number(studentForm.classNumber),
+      guardianPhone: studentForm.guardianPhone,
       notes: studentForm.notes,
       classroomId: Number(studentForm.classroomId),
     };
@@ -644,6 +655,21 @@ export default function StudentsPage() {
               />
             </Field>
           </div>
+          <Field
+            label="رقم واتساب ولي الأمر"
+            hint="بصيغة دولية بدون أصفار — لإرسال نتيجة الطالب عبر واتساب"
+          >
+            <Input
+              dir="ltr"
+              className="text-right"
+              value={studentForm.guardianPhone}
+              onChange={(e) =>
+                setStudentForm((f) => ({ ...f, guardianPhone: e.target.value.replace(/[^\d+]/g, "") }))
+              }
+              placeholder="9665xxxxxxxx"
+            />
+          </Field>
+
           <Field label="الفصل" hint={editingStudent ? "يمكنك نقل الطالب لفصل آخر" : undefined}>
             <Select
               value={String(studentForm.classroomId)}

@@ -21,10 +21,16 @@ export type ScoreItemKind =
   | "quiz"
   | "written"
   | "practical"
+  | "oral"
   | "custom";
 
-/** مجموعة التقييم: المهام الأدائية (٤٠) أو التقويمات التحريرية (٦٠) */
-export type ScoreGroup = "performance" | "written";
+/**
+ * مجموعة التقييم:
+ *  - performance : المهام الأدائية (٤٠)
+ *  - written     : التقويمات التحريرية (٦٠)
+ *  - oral        : التقويمات التحريرية والشفوية (اختيارية — بلا هدف ثابت)
+ */
+export type ScoreGroup = "performance" | "written" | "oral";
 
 /** فترة التقييم داخل الفصل الدراسي (فترتان لكل فصل) */
 export type ScorePeriod = "p1" | "p2";
@@ -52,6 +58,8 @@ export const users = pgTable(
   {
     id: serial("id").primaryKey(),
     username: text("username").notNull(),
+    /** البريد الإلكتروني — يُستخدم لاستعادة كلمة المرور */
+    email: text("email"),
     passwordHash: text("password_hash").notNull(),
     fullName: text("full_name").notNull().default("معلم المادة"),
     role: text("role").notNull().default("teacher"),
@@ -80,6 +88,9 @@ export const appSettings = pgTable("app_settings", {
   pctVgood: integer("pct_vgood").notNull().default(80),
   pctGood: integer("pct_good").notNull().default(65),
   pctPass: integer("pct_pass").notNull().default(50),
+  /* توقيعات مرفوعة كصور (base64) — تظهر في التقارير المطبوعة */
+  teacherSignature: text("teacher_signature"),
+  headmasterSignature: text("headmaster_signature"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -118,6 +129,8 @@ export const students = pgTable(
       .notNull()
       .references(() => classrooms.id, { onDelete: "cascade" }),
     classNumber: integer("class_number"),
+    /** رقم واتساب ولي الأمر (لإرسال نتيجة الطالب) */
+    guardianPhone: text("guardian_phone"),
     notes: text("notes"),
     active: boolean("active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

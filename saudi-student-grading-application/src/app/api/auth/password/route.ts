@@ -24,6 +24,7 @@ export async function PUT(request: Request) {
       newPassword?: string;
       fullName?: string;
       username?: string;
+      email?: string;
     };
 
     const fullName = (body.fullName ?? "").replace(/\s+/g, " ").trim();
@@ -75,6 +76,30 @@ export async function PUT(request: Request) {
       }
       const hash = await bcrypt.hash(next, 10);
       updates.push(`password_hash = '${hash.replace(/'/g, "''")}'`);
+    }
+
+    // البريد الإلكتروني (اختياري) — يُستخدم لاستعادة كلمة المرور
+    const newEmail = (body.email ?? "").trim().toLowerCase();
+    if (body.email !== undefined) {
+      if (newEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(newEmail)) {
+        return NextResponse.json(
+          { ok: false, error: "صيغة البريد الإلكتروني غير صحيحة" },
+          { status: 400 },
+        );
+      }
+      if (newEmail) {
+        const taken = await db.execute<{ id: number }>(
+          sql`SELECT id FROM users WHERE lower(COALESCE(email, '')) = ${newEmail}
+              AND id <> ${guard.session.uid} LIMIT 1`,
+        );
+        if (taken.rows?.[0]) {
+          return NextResponse.json(
+            { ok: false, error: "هذا البريد مسجّل لحساب آخر" },
+            { status: 409 },
+          );
+        }
+      }
+      updates.push(newEmail ? `email = '${newEmail.replace(/'/g, "''")}'` : `email = NULL`);
     }
 
     if (updates.length === 0) {

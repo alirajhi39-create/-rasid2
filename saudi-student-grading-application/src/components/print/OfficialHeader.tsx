@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import ministryLogo from "@/assets/images/moe-logo.png";
 
 export type PrintSettings = {
   schoolName: string;
@@ -13,6 +14,9 @@ export type PrintSettings = {
   pctVgood: number;
   pctGood: number;
   pctPass: number;
+  /** توقيعات صور (base64) إن وُجدت */
+  teacherSignature: string | null;
+  headmasterSignature: string | null;
 };
 
 /** شعار وزارة التعليم */
@@ -20,7 +24,7 @@ export function MinistryLogo({ size = 76 }: { size?: number }) {
   return (
     /* eslint-disable-next-line @next/next/no-img-element */
     <img
-      src="/images/moe-logo.png"
+      src={ministryLogo.src}
       alt="شعار وزارة التعليم"
       width={size}
       height={size}
@@ -116,27 +120,59 @@ export function OfficialHeader({
 }
 
 /** تذييل بالتوقيعات — معلم المادة ومدير المدرسة فقط */
+function SignatureSlot({
+  label,
+  name,
+  signature,
+}: {
+  label: string;
+  name: string;
+  signature?: string | null;
+}) {
+  return (
+    <div className="text-center">
+      <p className="text-[10pt] font-bold text-slate-800">{label}</p>
+      {/* مساحة التوقيع: صورة إن وُجدت وإلا خط منقوط للتوقيع اليدوي */}
+      <div className="mx-auto mt-1.5 grid h-16 w-56 place-items-center border-b border-dotted border-slate-500">
+        {signature ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={signature}
+            alt={`توقيع ${label}`}
+            className="max-h-14 max-w-52 object-contain"
+          />
+        ) : null}
+      </div>
+      <p className="mt-1 border-t border-dotted border-slate-500 pt-1 text-[10pt] font-bold text-slate-800">
+        {name}
+      </p>
+    </div>
+  );
+}
+
 export function SignaturesFooter({
   teacherName,
   headmasterName,
   note,
+  teacherSignature,
+  headmasterSignature,
 }: {
   teacherName: string;
   headmasterName: string;
   note?: string;
+  teacherSignature?: string | null;
+  headmasterSignature?: string | null;
 }) {
   return (
     <footer className="avoid-break mt-6">
       {note && <p className="mb-4 text-[9pt] font-semibold text-slate-600">{note}</p>}
       <div className="grid grid-cols-2 gap-8 text-center text-[10pt] font-bold text-slate-800">
-        <div>
-          <p className="mb-10">معلم المادة</p>
-          <p className="border-t border-dotted border-slate-500 pt-1">{teacherName}</p>
-        </div>
-        <div>
-          <p className="mb-10">مدير المدرسة</p>
-          <p className="border-t border-dotted border-slate-500 pt-1">{headmasterName}</p>
-        </div>
+        <SignatureSlot label="معلم المادة" name={teacherName} signature={teacherSignature} />
+        <SignatureSlot
+          label="مدير المدرسة"
+          name={headmasterName}
+          signature={headmasterSignature}
+        />
       </div>
     </footer>
   );

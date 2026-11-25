@@ -57,6 +57,7 @@ type Row = {
   fullName: string;
   nationalId: string | null;
   classNumber: number | null;
+  guardianPhone: string | null;
   values: GradeValues;
   total: number;
 };
@@ -422,6 +423,37 @@ export default function GradesClient() {
     } else pushToast("error", res.error ?? "تعذر فك الربط");
   }, [subjectId, pushToast, loadAllSubjects]);
 
+  /** بناء رسالة نتيجة الطالب لواتساب ولي الأمر */
+  const sendWhatsApp = (row: Row) => {
+    const phone = (row.guardianPhone ?? "").replace(/\D/g, "");
+    if (!phone) {
+      pushToast("error", "لا يوجد رقم واتساب لولي الأمر — أضفه من بيانات الطالب");
+      return;
+    }
+    const pct = totalMax > 0 ? Math.round((row.total / totalMax) * 100) : 0;
+    const rating = ratingFor(pct, row.total, passingScore, ratingThresholds);
+    const pAvg = periodAverage(items, row.values);
+    const yearT = row.total;
+    const lines = [
+      `السلام عليكم، نتائج الطالب/ة: ${row.fullName}`,
+      `المادة: ${currentSubject?.name ?? ""}`,
+      `الفصل: ${currentClassroom ? `${GRADE_LABEL_PREFIX} ${currentClassroom.grade} ${currentClassroom.section}` : ""} — ${SEMESTER_LABEL[semester]}`,
+      "",
+      ...groupColumns.map((g) => {
+        const got = computeGroupTotal(items, row.values, g.group).got;
+        return `${GROUP_LABEL[g.group]}: ${got} / ${g.max}`;
+      }),
+      `المجموع: ${row.total} / ${totalMax} (${pct}٪)`,
+      `متوسط الفترتين: ${pAvg}`,
+      `التقدير: ${rating.label} — ${rating.passed ? "ناجح" : "راسب"}`,
+      `مجموع الفصل: ${yearT}`,
+      "",
+      `نظام رَصْد — ${currentClassroom ? `${GRADE_LABEL_PREFIX} ${currentClassroom.grade}` : ""}`,
+    ];
+    const url = `https://wa.me/${phone}?text=${encodeURIComponent(lines.join("\n"))}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
   const saveBadge = {
     idle: { text: "جاهز", cls: "bg-slate-100 text-slate-600", dot: "bg-slate-400" },
     saving: { text: "جارٍ الحفظ...", cls: "bg-amber-50 text-amber-700", dot: "bg-amber-500 animate-pulse" },
@@ -728,12 +760,16 @@ export default function GradesClient() {
                       className={`border-b border-l border-slate-200 px-2 py-1.5 text-center text-[12px] font-extrabold ${
                         g.group === "performance"
                           ? "bg-sky-200/80 text-sky-900"
-                          : "bg-violet-200/80 text-violet-900"
+                          : g.group === "oral"
+                            ? "bg-teal-200/80 text-teal-900"
+                            : "bg-violet-200/80 text-violet-900"
                       }`}
                     >
                       {GROUP_LABEL[g.group]}
                       <span className="ms-1.5 rounded bg-white/70 px-1.5 py-0.5 text-[10px] font-bold">
-                        {g.max} / {GROUP_TARGET[g.group]}
+                        {GROUP_TARGET[g.group] > 0
+                          ? `${g.max} / ${GROUP_TARGET[g.group]}`
+                          : `${g.max} درجة`}
                       </span>
                     </th>
                   ))}
@@ -837,10 +873,31 @@ export default function GradesClient() {
                       <td className="px-2 py-1.5 text-center text-xs tabular-nums text-slate-400">
                         {row.classNumber ?? rowIndex + 1}
                       </td>
-                      <td className="max-w-56 px-3 py-1.5">
-                        <span className="block truncate text-[13px] font-semibold text-slate-800">
-                          {row.fullName}
-                        </span>
+                      <td className="max-w-64 px-3 py-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-800"
+                            title={row.fullName}
+                          >
+                            {row.fullName}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => sendWhatsApp(row)}
+                            title={
+                              row.guardianPhone
+                                ? `إرسال النتيجة إلى ولي الأمر: ${row.guardianPhone}`
+                                : "لا يوجد رقم واتساب لولي الأمر"
+                            }
+                            className={`shrink-0 rounded-lg px-1.5 py-1 text-[11px] transition ${
+                              row.guardianPhone
+                                ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                : "bg-slate-100 text-slate-400 hover:bg-slate-200"
+                            }`}
+                          >
+                            🟢 واتساب
+                          </button>
+                        </div>
                       </td>
                       {groupColumns.flatMap((g) =>
                         g.items.map((item) => {

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button, Input, Field, Alert, Spinner } from "@/components/ui";
+import boyAvatar from "@/assets/images/boy-avatar.png";
 
 type Mode = "login" | "register";
 
@@ -20,6 +21,7 @@ export default function LoginForm() {
   // إنشاء حساب معلم جديد
   const [regName, setRegName] = useState("");
   const [regUsername, setRegUsername] = useState("");
+  const [regEmail, setRegEmail] = useState("");
   const [regPassword, setRegPassword] = useState("");
   const [regConfirm, setRegConfirm] = useState("");
   const [regSchool, setRegSchool] = useState("");
@@ -31,25 +33,41 @@ export default function LoginForm() {
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [showForgot, setShowForgot] = useState(false);
+  const [forgotId, setForgotId] = useState("");
+  const [forgotBusy, setForgotBusy] = useState(false);
+  const [forgotMsg, setForgotMsg] = useState<string | null>(null);
   const [noAccounts, setNoAccounts] = useState(false);
 
   // تهيئة قاعدة البيانات تلقائياً عند أول زيارة (بدون عرض أي بيانات دخول)
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const res = await fetch("/api/init-db", { method: "POST" });
-        const data = await res.json();
-        if (cancelled) return;
-        if (data?.needsFirstAccount) {
-          setNoAccounts(true);
-          setMode("register");
+      // محاولة مزدوجة لضمان إنشاء الجداول عند أول زيارة
+      for (let attempt = 1; attempt <= 2 && !cancelled; attempt++) {
+        try {
+          const res = await fetch("/api/init-db", { method: "POST" });
+          const data = await res.json();
+          if (cancelled) return;
+          if (data?.ok === false) {
+            if (attempt === 1) continue; // إعادة المحاولة
+            setError(
+              "تعذر إنشاء جداول قاعدة البيانات" +
+                (data.details ? ` (${String(data.details).slice(0, 140)})` : ""),
+            );
+            break;
+          }
+          if (data?.needsFirstAccount) {
+            setNoAccounts(true);
+            setMode("register");
+          }
+          break; // نجاح
+        } catch {
+          if (attempt === 1) continue;
+          if (!cancelled) setError("تعذر الاتصال بقاعدة البيانات، تحقق من متغير DATABASE_URL");
         }
-      } catch {
-        if (!cancelled) setError("تعذر الاتصال بقاعدة البيانات، تحقق من متغير DATABASE_URL");
-      } finally {
-        if (!cancelled) setChecking(false);
       }
+      if (!cancelled) setChecking(false);
     })();
     return () => {
       cancelled = true;
@@ -86,6 +104,29 @@ export default function LoginForm() {
     }
   }
 
+  async function submitForgot(event: React.FormEvent) {
+    event.preventDefault();
+    setForgotMsg(null);
+    setForgotBusy(true);
+    try {
+      const res = await fetch("/api/auth/forgot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: forgotId }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setForgotMsg(data.error ?? "تعذر إرسال الطلب");
+        return;
+      }
+      setForgotMsg(data.message ?? "تم إرسال الطلب");
+    } catch {
+      setForgotMsg("حدث خطأ في الشبكة");
+    } finally {
+      setForgotBusy(false);
+    }
+  }
+
   async function submitRegister(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
@@ -101,6 +142,7 @@ export default function LoginForm() {
         body: JSON.stringify({
           fullName: regName,
           username: regUsername,
+          email: regEmail.trim() || undefined,
           password: regPassword,
           schoolName: showSchoolFields ? regSchool : "",
           administration: showSchoolFields ? regAdmin : "",
@@ -137,8 +179,14 @@ export default function LoginForm() {
         <div className="relative hidden flex-col justify-between bg-gradient-to-br from-brand-700 via-brand-600 to-brand-800 p-9 text-white lg:flex">
           <div>
             <div className="flex items-center gap-3">
-              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/15 text-2xl ring-1 ring-white/25">
-                🎓
+              {/* صورة الطالب (ولد) */}
+              <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-white shadow-lg ring-2 ring-white/60">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={boyAvatar.src}
+                  alt="طالب"
+                  className="h-full w-full object-cover"
+                />
               </div>
               <div>
                 <p className="text-xl font-extrabold tracking-tight">رَصْد</p>
@@ -181,8 +229,13 @@ export default function LoginForm() {
         {/* النماذج */}
         <div className="p-7 sm:p-10">
           <div className="mb-6 text-center lg:text-right">
-            <div className="mb-4 inline-grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-3xl ring-1 ring-brand-100 lg:hidden">
-              🎓
+            <div className="mb-4 h-20 w-20 overflow-hidden rounded-2xl bg-white shadow-md ring-2 ring-brand-100 lg:hidden">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={boyAvatar.src}
+                alt="طالب"
+                className="h-full w-full object-cover"
+              />
             </div>
             <h2 className="text-2xl font-extrabold text-slate-800">
               {mode === "login" ? "تسجيل دخول المعلم" : "إنشاء حساب معلم"}
@@ -272,6 +325,51 @@ export default function LoginForm() {
                 )}
               </Button>
 
+              <div className="text-left">
+                <button
+                  type="button"
+                  onClick={() => setShowForgot((v) => !v)}
+                  className="text-[11px] font-bold text-slate-500 transition hover:text-brand-600"
+                >
+                  نسيت كلمة المرور؟
+                </button>
+              </div>
+
+              {showForgot && (
+                <div className="animate-fade-up rounded-2xl border border-slate-200 bg-slate-50 p-3.5 text-right">
+                  <p className="text-xs font-extrabold text-slate-700">
+                    استعادة كلمة المرور عبر البريد الإلكتروني
+                  </p>
+                  <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                    أدخل اسم المستخدم — سيرسل النظام رابطاً مؤقتاً صالحًا ٣٠ دقيقة إلى بريدك.
+                  </p>
+                  <form onSubmit={submitForgot} className="mt-2.5 space-y-2">
+                    <Input
+                      value={forgotId}
+                      onChange={(e) => setForgotId(e.target.value)}
+                      placeholder="اسم المستخدم أو البريد"
+                      dir="ltr"
+                      className="text-right"
+                      required
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      variant="success"
+                      className="w-full"
+                      disabled={forgotBusy}
+                    >
+                      {forgotBusy ? <Spinner /> : "📤 إرسال رابط الاستعادة"}
+                    </Button>
+                  </form>
+                  {forgotMsg && (
+                    <p className="mt-2 rounded-lg bg-white px-2 py-1.5 text-[11px] leading-5 text-emerald-700">
+                      {forgotMsg}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <p className="text-center text-xs text-slate-500">
                 ليس لديك حساب؟{" "}
                 <button
@@ -306,7 +404,22 @@ export default function LoginForm() {
                 />
               </Field>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+                <Field
+                label="البريد الإلكتروني"
+                hint="اختياري لكن مطلوب لاستعادة كلمة المرور عبر الرسالة"
+              >
+                <Input
+                  type="email"
+                  dir="ltr"
+                  className="text-right"
+                  value={regEmail}
+                  onChange={(e) => setRegEmail(e.target.value)}
+                  placeholder="teacher@school.edu.sa"
+                  autoComplete="email"
+                />
+              </Field>
+
+            <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="كلمة المرور" hint="٦ أحرف على الأقل">
                   <Input
                     type="password"
